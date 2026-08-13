@@ -30,6 +30,8 @@ test("renders the production storefront", async () => {
   assert.doesNotMatch(html, /codex-preview|development/i);
   assert.match(html, /tile\.openstreetmap\.org/);
   assert.match(html, /map\.naver\.com\/p\/entry\/place\/1626605361/);
+  assert.match(html, /catharsis-mark\.svg/);
+  assert.doesNotMatch(html, /favicon\.svg/);
   assert.doesNotMatch(
     html,
     /입력 정보는|서버로 전송|저장되지|데이터베이스|미완성|시범|데모/i,

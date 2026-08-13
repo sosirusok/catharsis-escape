@@ -1,0 +1,5 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="64" height="64" rx="8" fill="#0D0C0B"/>
+  <rect x="13.615" y="13.615" width="36.77" height="36.77" transform="rotate(45 13.615 13.615)" stroke="#B89667" stroke-width="1.8"/>
+  <text x="32" y="41" text-anchor="middle" fill="#D7B983" font-family="Georgia, 'Times New Roman', serif" font-size="27">C</text>
+</svg>

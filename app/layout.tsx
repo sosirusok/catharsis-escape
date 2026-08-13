@@ -6,8 +6,9 @@ export const metadata: Metadata = {
   description:
     "부산 서면 카타르시스 이스케이프. 테마, 이용 요금, 예약, 오시는 길을 확인하세요.",
   icons: {
-    icon: "/favicon.svg",
-    shortcut: "/favicon.svg",
+    icon: "/catharsis-mark.svg",
+    shortcut: "/catharsis-mark.svg",
+    apple: "/catharsis-mark.svg",
   },
   openGraph: {
     title: "카타르시스 이스케이프",

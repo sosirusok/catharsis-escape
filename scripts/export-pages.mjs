@@ -33,7 +33,10 @@ html = html
   .replaceAll("'/assets/", `'${projectPath}/assets/`)
   .replaceAll('"/images/', `"${projectPath}/images/`)
   .replaceAll("'/images/", `'${projectPath}/images/`)
-  .replaceAll('"/favicon.svg', `"${projectPath}/favicon.svg`)
+  .replaceAll(
+    '"/catharsis-mark.svg',
+    `"${projectPath}/catharsis-mark.svg`,
+  )
   .replace(
     /<meta(?=[^>]*\bname=["']codex-preview["'])(?=[^>]*\bcontent=["']development["'])[^>]*>/i,
     "",

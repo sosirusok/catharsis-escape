@@ -10,57 +10,32 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  check-pages:
-    runs-on: ubuntu-latest
-    permissions:
-      pages: read
-    outputs:
-      enabled: ${{ steps.pages.outputs.enabled }}
-    steps:
-      - id: pages
-        name: Check whether Pages is enabled
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
-            --header "Accept: application/vnd.github+json" \
-            --header "Authorization: Bearer ${GH_TOKEN}" \
-            --header "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/pages")"
-          if [ "${status}" = "200" ]; then
-            echo "enabled=true" >> "${GITHUB_OUTPUT}"
-          else
-            echo "enabled=false" >> "${GITHUB_OUTPUT}"
-            echo "::notice::Enable Pages with GitHub Actions in Settings > Pages, then run this workflow again."
-          fi
-
   build:
-    needs: check-pages
-    if: needs.check-pages.outputs.enabled == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       pages: read
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: 22.13.0
           cache: npm
-      - name: Install dependencies
-        run: npm ci
-      - name: Test
-        run: npm test
-      - name: Export static site
-        run: npm run export:pages
-      - name: Configure Pages
-        uses: actions/configure-pages@v6
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v5
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - name: Build GitHub Pages site
+        shell: bash
+        run: |
+          case "${GITHUB_REPOSITORY##*/}" in
+            catharsis-escape) npm run export:pages:customer ;;
+            catharsis-2vdf9n5pq1) npm run export:pages:admin ;;
+            *) echo "Unsupported repository: ${GITHUB_REPOSITORY}" >&2; exit 64 ;;
+          esac
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
         with:
-          path: dist/client
+          path: dist-pages
 
   deploy:
     needs: build
@@ -72,6 +47,6 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - id: deployment
-        name: Deploy to GitHub Pages
-        uses: actions/deploy-pages@v5
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

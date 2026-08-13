@@ -542,6 +542,31 @@ svg {
   font-weight: 600;
 }
 
+.booking-intro > button {
+  width: fit-content;
+  margin-top: 34px;
+  padding: 0 0 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  border: 0;
+  border-bottom: 1px solid rgba(255,255,255,.38);
+  background: transparent;
+  color: white;
+  cursor: pointer;
+  font-size: 15px;
+}
+
+.booking-paused {
+  margin-bottom: 34px;
+  padding: 20px 22px;
+  display: grid;
+  border-left: 3px solid var(--wine);
+  background: #f5ebe7;
+  color: #5f252a;
+}
+.booking-paused span { color: #725a58; font-size: 14px; }
+
 .booking-form {
   min-width: 0;
   padding: 94px clamp(34px, 5vw, 82px) 112px;
@@ -626,6 +651,7 @@ svg {
   font-size: 16px;
   font-weight: 630;
 }
+.booking-theme em { display: block; margin-top: 3px; color: #827a72; font-size: 12px; font-style: normal; }
 
 .booking-theme > i {
   width: 19px;
@@ -687,6 +713,7 @@ svg {
 .slot-header {
   margin-bottom: 17px;
 }
+.slot-header span { color: #8e867d; font-size: 12px; }
 
 .slot-header strong {
   font-size: 15px;
@@ -706,6 +733,16 @@ svg {
   font-size: 17px;
   font-family: Georgia, serif;
 }
+.time-button { min-height: 66px; display: grid; place-content: center; gap: 2px; }
+.time-button strong { font-size: 15px; }
+.time-button small { color: #8c847c; font-size: 11px; }
+.time-button.selected small { color: rgba(255,255,255,.72); }
+.time-button:disabled { color: #aaa39b; background: #eee9e2; cursor: not-allowed; text-decoration: none; }
+.time-button:disabled small { color: #b1aaa2; }
+.no-slots { grid-column: 1 / -1; margin: 10px 0; color: #8c847c; }
+.date-loading { min-width: 230px; padding: 22px; display: grid; place-items: center; color: #8c847c; font-size: 13px; }
+.date-button:disabled { opacity: .37; cursor: not-allowed; }
+.booking-error { margin: 0 0 18px; padding: 13px 15px; border: 1px solid #d9b9b7; background: #f7e9e8; color: #7e2a31; font-size: 14px; }
 
 .time-button:hover {
   border-color: #8a7768;
@@ -782,14 +819,26 @@ svg {
   font: 400 20px Georgia, serif;
 }
 
-.consent {
+.consent-row {
   margin-top: 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+}
+
+.consent {
   display: flex;
   align-items: center;
   gap: 10px;
   color: #5f574f;
   cursor: pointer;
   font-size: 15px;
+}
+
+.consent b {
+  color: var(--wine);
+  font-size: 13px;
 }
 
 .consent input {
@@ -820,6 +869,17 @@ svg {
   border: solid white;
   border-width: 0 2px 2px 0;
   transform: rotate(45deg);
+}
+
+.privacy-open {
+  flex: 0 0 auto;
+  padding: 3px 0;
+  border: 0;
+  border-bottom: 1px solid #8d8176;
+  background: transparent;
+  color: #5e554d;
+  cursor: pointer;
+  font-size: 13px;
 }
 
 .booking-summary {
@@ -949,6 +1009,92 @@ svg {
   font-size: 15px;
 }
 
+.rates-title .rates-eyebrow {
+  margin: 0 0 12px;
+  color: var(--brass);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+}
+
+.rates-content {
+  min-width: 0;
+}
+
+.rate-theme-tabs {
+  margin-bottom: 24px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.rate-theme-tabs button {
+  min-height: 43px;
+  padding: 0 16px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: transparent;
+  color: #aaa29a;
+  cursor: pointer;
+  font-size: 13px;
+  transition: border-color 0.2s, background 0.2s, color 0.2s;
+}
+
+.rate-theme-tabs button:hover {
+  border-color: rgba(199, 163, 109, 0.58);
+  color: #eee8df;
+}
+
+.rate-theme-tabs button.selected {
+  border-color: var(--brass);
+  background: var(--brass);
+  color: #1e1a17;
+}
+
+.rate-theme-summary {
+  min-height: 78px;
+  padding: 0 2px 22px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.rate-theme-summary > div span,
+.rate-theme-summary > div strong {
+  display: block;
+}
+
+.rate-theme-summary > div span {
+  margin-bottom: 5px;
+  color: #9e958c;
+  font-size: 12px;
+}
+
+.rate-theme-summary > div strong {
+  font-size: 21px;
+  font-weight: 620;
+  letter-spacing: -0.025em;
+}
+
+.rate-theme-summary > p {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: #aaa29a;
+  font-size: 13px;
+}
+
+.rate-theme-summary > p b {
+  color: var(--brass);
+  font: 400 20px Georgia, serif;
+}
+
+.rate-theme-summary > p span {
+  padding-left: 10px;
+  border-left: 1px solid rgba(255, 255, 255, 0.18);
+}
+
 .price-table {
   border-top: 1px solid var(--line);
 }
@@ -986,6 +1132,39 @@ svg {
   margin: 14px 0 0;
   color: #999189;
   font-size: 14px;
+}
+
+.rate-footer {
+  padding-top: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.rate-footer p {
+  margin: 0;
+  color: #999189;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.rate-footer button {
+  flex: 0 0 auto;
+  padding: 7px 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  border-bottom: 1px solid rgba(199, 163, 109, 0.72);
+  background: transparent;
+  color: var(--brass);
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.rate-footer button svg {
+  width: 17px;
 }
 
 .amenities {
@@ -1375,12 +1554,18 @@ footer {
   gap: 14px 30px;
 }
 
-.footer-links a {
+.footer-links a,
+.footer-links button {
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: #bab4ac;
+  cursor: pointer;
   font-size: 14px;
 }
 
-.footer-links a:hover {
+.footer-links a:hover,
+.footer-links button:hover {
   color: white;
 }
 
@@ -1434,6 +1619,41 @@ footer {
   font-size: 32px;
   line-height: 1.3;
   letter-spacing: -0.04em;
+}
+.modal-kicker { margin: 0 0 7px; color: var(--wine); font-size: 10px; font-weight: 700; letter-spacing: .18em; }
+.booking-code { margin: 22px 0 4px; padding: 18px 20px; display: flex; align-items: center; justify-content: space-between; border: 1px solid #d5c7b5; background: #f5efe6; color: #2d2824; }
+.booking-code span { color: #7d746b; font-size: 12px; }
+.booking-code strong { color: var(--wine); font: 700 23px Georgia,serif; letter-spacing: .08em; }
+.success-seal { width: 58px; height: 58px; margin-bottom: 22px; display: grid; place-items: center; border-radius: 50%; background: #e5eee8; color: #2e7355; font-size: 24px; }
+.success-close { width: 100%; margin-top: 23px; }
+.lookup-form { display: grid; gap: 17px; }
+.lookup-form label { display: grid; gap: 7px; color: #6f675f; font-size: 12px; }
+.lookup-form input { height: 48px; padding: 0 13px; border: 1px solid var(--dark-line); background: white; color: #231f1c; }
+.lookup-form .button { margin-top: 5px; }
+.reservation-state { width: fit-content; margin: 0 0 10px; padding: 6px 10px; border-radius: 20px; background: #e4efe8; color: #2e7355; font-size: 12px; }
+.reservation-state.cancelled { background: #eeeae6; color: #756e68; }
+.button.danger { background: #8b2730; color: white; }
+
+.privacy-modal {
+  width: min(610px, 100%);
+}
+
+.privacy-list dd {
+  line-height: 1.75;
+}
+
+.privacy-note {
+  margin: 20px 0 0;
+  padding: 16px 18px;
+  background: #dfd8ce;
+  color: #635a52;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.privacy-confirm {
+  width: 100%;
+  margin-top: 22px;
 }
 
 .review-modal dl {
@@ -1743,6 +1963,13 @@ summary:focus-visible {
     min-width: 126px;
   }
 
+  .booking-form .booking-summary {
+    position: relative;
+    bottom: auto;
+    z-index: 1;
+    margin-bottom: 10px;
+  }
+
   .guide-section {
     padding: 100px 0;
   }
@@ -1783,6 +2010,27 @@ summary:focus-visible {
 
   .price-table > div {
     grid-template-columns: 0.7fr 1fr 1fr;
+  }
+
+  .rate-theme-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .rate-theme-tabs button {
+    padding-inline: 10px;
+  }
+
+  .rate-theme-summary {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 13px;
+  }
+
+  .rate-footer {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 14px;
   }
 
   .notice-section {
@@ -1902,6 +2150,20 @@ summary:focus-visible {
 
   .modal-actions {
     grid-template-columns: 1fr;
+  }
+
+  .consent-row {
+    align-items: flex-start;
+  }
+
+  .consent {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    row-gap: 5px;
+  }
+
+  .consent > span {
+    flex: 0 0 auto;
   }
 }
 

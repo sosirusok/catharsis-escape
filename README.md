@@ -1,42 +1,57 @@
 # 카타르시스 이스케이프
 
-부산 서면 카타르시스 이스케이프 공식 웹사이트 프로젝트입니다.
+부산 서면 카타르시스 이스케이프의 고객 예약 사이트와 예약·운영 관리자 프로젝트입니다.
 
-## 바로가기
+## 운영 링크
 
-- 웹사이트: https://sosirusok.github.io/catharsis-escape/
-- 네이버 예약: https://booking.naver.com/booking/12/bizes/737799
+- 고객 사이트: https://sosirusok.github.io/catharsis-escape/
+- 예약·운영 관리자: https://sosirusok.github.io/catharsis-2vdf9n5pq1/
 - 네이버 지도: https://map.naver.com/p/entry/place/1626605361
 
-## 주요 기능
+관리자 링크에서는 별도 계정 로그인 없이 관리자 키를 확인합니다. 키와 세션 서명값은 서버 환경에만 보관하며 저장소와 브라우저 코드에는 포함하지 않습니다.
 
-- 테마별 소개와 난이도·인원 안내
-- 날짜·시간·인원 선택형 예약 화면
-- 대표자 이름·전화번호 입력 및 예약 내용 확인
-- 인원별 이용 요금과 방문 안내
-- 매장 위치·전화·네이버 예약 연결
+## 고객 기능
+
+- 관리자 설정을 반영하는 테마 소개·요금·난이도·인원 안내
+- Asia/Seoul 기준 자동 순환 예약 날짜
+- 실시간 예약 가능 시간 확인과 중복 예약 차단
+- 대표자 이름·전화번호·인원 입력, 예약 코드 발급
+- 예약 조회·취소와 취소된 시간의 자동 재오픈
+- 매장 위치, 실제 지도, 방문 안내
 - 데스크톱·태블릿·모바일 반응형 UI
+
+## 운영 관리자 기능
+
+- 날짜별 예약 조회, 직접 예약 추가, 상태·인원·연락처·메모 관리
+- 테마 추가·수정·운영 종료, 이미지·설명·난이도·시간·인원·가격 관리
+- 요일별 반복 시간표와 특정 날짜 시간 추가·마감
+- 매장 전체 또는 테마별 휴무 관리
+- 예약 공개 기간, 당일 마감, 고객 취소 마감, 접수 일시 중지 설정
+
+## 데이터와 보안
+
+- Cloudflare D1 기반 영구 예약 데이터
+- 활성 예약의 슬롯 단위 고유 제약으로 동시 중복 예약 차단
+- 예약자 이름·전화번호 AES-GCM 암호화
+- 전화번호 조회용 HMAC, 요청 속도 제한, 관리자 변경 이력
+- 서버 검증형 관리자 키, 실행 환경별 서명 세션, 최소 범위 CORS 정책
 
 ## 개발
 
-\`\`\`bash
-npm ci
-npm run dev
-\`\`\`
+    npm ci
+    npm run dev
 
 ## 검증
 
-\`\`\`bash
-npm test
-npm run lint
-npm run export:pages
-\`\`\`
+    npm run lint
+    npm test
 
-## 배포
+GitHub Actions는 main에서 코드 검사, 프로덕션 빌드, 기능 테스트와 GitHub Pages 배포를 자동 실행합니다.
 
-- GitHub의 \`main\` 브랜치가 갱신되면 Actions가 테스트와 코드 검사를 실행합니다.
-- 저장소의 Pages 소스를 \`GitHub Actions\`로 설정하면 공개 사이트도 자동 배포됩니다.
+## 배포 구조
+
+고객 화면과 관리자 화면은 각각 GitHub Pages에 배포됩니다. 예약 API, 관리자 키 검증, D1 데이터베이스와 R2 이미지 저장소는 별도 서버 런타임에서 실행되며 두 GitHub 사이트가 동일한 실시간 예약 데이터를 사용합니다.
 
 ## 기술 구성
 
-Next.js · React · TypeScript · Vinext · Cloudflare Workers
+Next.js · React · TypeScript · Vinext · Cloudflare Workers · D1 · R2

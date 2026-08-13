@@ -21,17 +21,22 @@
 
 ## 개발
 
-```bash
+\`\`\`bash
 npm ci
 npm run dev
-```
+\`\`\`
 
 ## 검증
 
-```bash
+\`\`\`bash
 npm test
 npm run lint
-```
+\`\`\`
+
+## 배포
+
+- 운영 사이트는 OpenAI Sites에 공개 배포됩니다.
+- GitHub의 \`main\` 브랜치가 갱신되면 Actions가 테스트, 빌드, 코드 검사를 자동 실행합니다.
 
 ## 기술 구성
 

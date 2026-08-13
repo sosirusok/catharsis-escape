@@ -125,7 +125,7 @@ svg {
 
 .desktop-nav a {
   color: #d2cdc5;
-  font-size: 14px;
+  font-size: 15px;
   transition: color 0.2s;
 }
 
@@ -143,7 +143,7 @@ svg {
   border: 1px solid rgba(255, 255, 255, 0.25);
   background: rgba(255, 255, 255, 0.05);
   cursor: pointer;
-  font-size: 14px;
+  font-size: 15px;
   transition:
     border-color 0.2s,
     background 0.2s;
@@ -235,7 +235,7 @@ svg {
   border: 1px solid transparent;
   background: transparent;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
   transition:
     transform 0.2s,
@@ -277,6 +277,48 @@ svg {
     ),
     url("/images/hero.webp") center/cover no-repeat,
     linear-gradient(145deg, #2a211b, #090808);
+}
+
+.hero-facts {
+  position: absolute;
+  z-index: 7;
+  left: 8vw;
+  right: 5vw;
+  bottom: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-bottom: 0;
+  background: rgba(13, 11, 10, 0.84);
+  backdrop-filter: blur(18px);
+}
+
+.hero-facts > * {
+  min-height: 86px;
+  padding: 18px 24px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.hero-facts > * + * {
+  border-left: 1px solid rgba(255, 255, 255, 0.13);
+}
+
+.hero-facts span {
+  color: #aaa39a;
+  font-size: 14px;
+}
+
+.hero-facts strong {
+  margin-top: 3px;
+  color: #f0ebe3;
+  font-size: 17px;
+  font-weight: 620;
+}
+
+.hero-facts a strong {
+  color: var(--brass);
 }
 
 .themes-section {
@@ -404,7 +446,7 @@ svg {
   display: flex;
   gap: 12px;
   color: var(--brass);
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
 }
 
@@ -427,7 +469,7 @@ svg {
   max-width: 570px;
   margin: 23px 0 0;
   color: #b1aaa1;
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1.9;
 }
 
@@ -442,7 +484,7 @@ svg {
   padding: 9px 13px;
   border: 1px solid rgba(255, 255, 255, 0.15);
   color: #d0c9c1;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .theme-book {
@@ -456,7 +498,7 @@ svg {
   border-bottom: 1px solid var(--brass);
   background: transparent;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
 }
 
@@ -496,7 +538,7 @@ svg {
   gap: 24px;
   border-bottom: 1px solid var(--brass);
   color: var(--brass);
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
 }
 
@@ -577,7 +619,7 @@ svg {
   display: block;
   margin-bottom: 5px;
   color: #756b62;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .booking-theme strong {
@@ -619,7 +661,7 @@ svg {
 
 .date-button small {
   color: #756b62;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .date-button strong {
@@ -628,7 +670,7 @@ svg {
 
 .date-button span {
   color: #8f857c;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .date-button.selected {
@@ -747,7 +789,7 @@ svg {
   gap: 10px;
   color: #5f574f;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 15px;
 }
 
 .consent input {
@@ -798,7 +840,7 @@ svg {
   display: block;
   margin-bottom: 5px;
   color: var(--brass);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .booking-summary strong {
@@ -809,7 +851,7 @@ svg {
 .booking-summary p {
   margin: 5px 0 0;
   color: #b1aaa2;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .booking-summary > button {
@@ -872,7 +914,7 @@ svg {
 
 .steps span {
   color: var(--brass);
-  font: 14px Georgia, serif;
+  font: 15px Georgia, serif;
 }
 
 .steps strong {
@@ -885,7 +927,7 @@ svg {
 .steps p {
   margin: 14px 0 0;
   color: #a29b92;
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1.8;
 }
 
@@ -922,7 +964,7 @@ svg {
 .price-table .price-head {
   min-height: 48px;
   color: #a09991;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .price-table strong {
@@ -943,7 +985,7 @@ svg {
 .price-note {
   margin: 14px 0 0;
   color: #999189;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .amenities {
@@ -961,7 +1003,7 @@ svg {
   gap: 14px;
   border: 1px solid rgba(255, 255, 255, 0.15);
   color: #c5beb6;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .amenities a {
@@ -992,7 +1034,7 @@ svg {
 
 .notice-grid span {
   color: var(--brass);
-  font: 14px Georgia, serif;
+  font: 15px Georgia, serif;
 }
 
 .notice-grid h3 {
@@ -1004,7 +1046,7 @@ svg {
 .notice-grid p {
   margin: 13px 0 0;
   color: #a19a91;
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1.8;
 }
 
@@ -1016,70 +1058,191 @@ svg {
   color: #181614;
 }
 
-.location-visual {
+.store-map {
   position: relative;
   min-height: 620px;
-  display: flex;
-  align-items: end;
-  justify-content: center;
-  padding: 50px;
   overflow: hidden;
-  background:
-    linear-gradient(
-      0deg,
-      rgba(11, 9, 8, 0.74),
-      rgba(11, 9, 8, 0.08) 58%,
-      rgba(11, 9, 8, 0.24)
-    ),
-    url("/images/hero.webp") center/cover no-repeat;
+  isolation: isolate;
+  background: #d7d4cd;
+  color: #171513;
 }
 
-.location-visual::after {
+.map-tile-grid {
+  position: absolute;
+  z-index: 0;
+  user-select: none;
+  filter: saturate(0.78) contrast(1.04) sepia(0.08);
+}
+
+.map-tile-grid img {
+  position: absolute;
+  width: 256px;
+  height: 256px;
+  max-width: none;
+  pointer-events: none;
+}
+
+.map-tone {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(20, 16, 13, 0.06), transparent 35%),
+    linear-gradient(0deg, rgba(15, 12, 10, 0.2), transparent 30%);
+  box-shadow: inset 0 0 70px rgba(23, 18, 15, 0.16);
+}
+
+.map-marker {
+  position: absolute;
+  z-index: 4;
+  left: 50%;
+  top: 50%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transform: translate(-17px, -50%);
+  filter: drop-shadow(0 8px 18px rgba(50, 24, 19, 0.28));
+}
+
+.map-pin-dot {
+  position: relative;
+  width: 35px;
+  height: 35px;
+  flex: 0 0 auto;
+  border: 7px solid var(--wine);
+  border-radius: 50% 50% 50% 0;
+  background: #f6efe5;
+  transform: rotate(-45deg);
+}
+
+.map-pin-dot::after {
   content: "";
   position: absolute;
-  inset: 0;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: inset 0 0 120px rgba(0, 0, 0, 0.3);
+  inset: 6px;
+  border-radius: 50%;
+  background: var(--wine);
 }
 
-.location-card {
-  position: relative;
-  z-index: 2;
-  width: min(560px, 100%);
-  min-height: 92px;
-  padding: 20px 24px;
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  gap: 18px;
-  background: rgba(18, 15, 13, 0.92);
-  color: var(--paper);
+.map-marker > div {
+  min-width: 188px;
+  padding: 12px 15px;
+  border: 1px solid rgba(36, 29, 24, 0.16);
+  background: rgba(250, 247, 241, 0.94);
+  box-shadow: 0 10px 30px rgba(35, 27, 22, 0.17);
   backdrop-filter: blur(12px);
 }
 
-.location-card > svg:first-child {
-  width: 30px;
-  color: var(--brass);
-}
-
-.location-card > svg:last-child {
-  width: 22px;
-  color: var(--brass);
-}
-
-.location-card strong,
-.location-card span {
+.map-marker strong,
+.map-marker > div span {
   display: block;
 }
 
-.location-card strong {
+.map-marker strong {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.map-marker > div span {
+  margin-top: 1px;
+  color: #71675f;
+  font-size: 14px;
+}
+
+.map-controls {
+  position: absolute;
+  z-index: 5;
+  right: 22px;
+  bottom: 22px;
+  display: grid;
+  border: 1px solid rgba(36, 29, 24, 0.2);
+  background: rgba(250, 247, 241, 0.95);
+  box-shadow: 0 8px 24px rgba(35, 27, 22, 0.15);
+}
+
+.map-controls button {
+  width: 44px;
+  height: 42px;
+  border: 0;
+  background: transparent;
+  color: #352e29;
+  cursor: pointer;
+  font-size: 22px;
+}
+
+.map-controls button + button {
+  border-top: 1px solid rgba(36, 29, 24, 0.16);
+}
+
+.map-controls button:disabled {
+  color: #b0a9a1;
+  cursor: default;
+}
+
+.map-place-card {
+  position: absolute;
+  z-index: 2;
+  left: 28px;
+  bottom: 28px;
+  width: min(390px, calc(100% - 122px));
+  min-height: 82px;
+  padding: 16px 19px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 15px;
+  background: rgba(18, 15, 13, 0.94);
+  color: var(--paper);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 16px 34px rgba(20, 15, 12, 0.2);
+}
+
+.map-place-card > svg {
+  width: 28px;
+  color: var(--brass);
+}
+
+.map-place-card strong,
+.map-place-card span {
+  display: block;
+}
+
+.map-place-card strong {
   font-size: 16px;
 }
 
-.location-card span {
+.map-place-card span {
   margin-top: 3px;
   color: #ada69e;
-  font-size: 13px;
+  font-size: 14px;
+}
+
+.map-naver-link {
+  position: absolute;
+  z-index: 5;
+  right: 22px;
+  top: 22px;
+  min-height: 48px;
+  padding: 0 18px;
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--wine);
+  color: white;
+  box-shadow: 0 10px 28px rgba(49, 24, 21, 0.22);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.map-attribution {
+  position: absolute;
+  z-index: 4;
+  left: 10px;
+  top: 10px;
+  padding: 3px 7px;
+  background: rgba(250, 247, 241, 0.78);
+  color: #635c56;
+  font-size: 12px;
 }
 
 .location-info {
@@ -1098,7 +1261,7 @@ svg {
   grid-template-columns: 88px 1fr;
   gap: 20px;
   border-bottom: 1px solid var(--dark-line);
-  font-size: 14px;
+  font-size: 15px;
 }
 
 .location-info dt {
@@ -1202,7 +1365,7 @@ footer {
 .footer-brand p {
   margin: 5px 0 0;
   color: #8f8982;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .footer-links {
@@ -1225,7 +1388,7 @@ footer {
   padding-top: 24px;
   border-top: 1px solid rgba(255, 255, 255, 0.1);
   color: #76716b;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .mobile-book {
@@ -1412,7 +1575,7 @@ summary:focus-visible {
     grid-template-columns: 1fr;
   }
 
-  .location-visual {
+  .store-map {
     min-height: 520px;
   }
 
@@ -1635,18 +1798,41 @@ summary:focus-visible {
     min-height: 182px;
   }
 
-  .location-visual {
-    min-height: 430px;
-    padding: 20px;
-  }
-
-  .location-card {
-    padding: 18px;
-    grid-template-columns: auto 1fr;
-  }
-
-  .location-card > svg:last-child {
+  .hero-facts {
     display: none;
+  }
+
+  .store-map {
+    min-height: 460px;
+  }
+
+  .map-place-card {
+    left: 16px;
+    bottom: 16px;
+    width: calc(100% - 92px);
+    min-height: 74px;
+    padding: 14px 15px;
+  }
+
+  .map-place-card strong {
+    font-size: 15px;
+  }
+
+  .map-place-card span {
+    font-size: 13px;
+  }
+
+  .map-controls {
+    right: 16px;
+    bottom: 16px;
+  }
+
+  .map-naver-link {
+    right: 16px;
+    top: 16px;
+    min-height: 44px;
+    padding: 0 14px;
+    font-size: 13px;
   }
 
   .location-info {

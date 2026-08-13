@@ -4,7 +4,7 @@
 
 ## 바로가기
 
-- 웹사이트: https://catharsis-escape.sosirusok.chatgpt.site
+- 웹사이트: https://sosirusok.github.io/catharsis-escape/
 - 네이버 예약: https://booking.naver.com/booking/12/bizes/737799
 - 네이버 지도: https://map.naver.com/p/entry/place/1626605361
 
@@ -16,8 +16,6 @@
 - 인원별 이용 요금과 방문 안내
 - 매장 위치·전화·네이버 예약 연결
 - 데스크톱·태블릿·모바일 반응형 UI
-
-온라인 예약의 최종 확정은 네이버 예약에서 진행됩니다. 자체 예약 데이터 저장은 추후 데이터베이스 연동 시 활성화할 수 있습니다.
 
 ## 개발
 
@@ -31,12 +29,13 @@ npm run dev
 \`\`\`bash
 npm test
 npm run lint
+npm run export:pages
 \`\`\`
 
 ## 배포
 
-- 운영 사이트는 OpenAI Sites에 공개 배포됩니다.
-- GitHub의 \`main\` 브랜치가 갱신되면 Actions가 테스트, 빌드, 코드 검사를 자동 실행합니다.
+- GitHub의 \`main\` 브랜치가 갱신되면 Actions가 테스트와 코드 검사를 실행합니다.
+- 저장소의 Pages 소스를 \`GitHub Actions\`로 설정하면 공개 사이트도 자동 배포됩니다.
 
 ## 기술 구성
 

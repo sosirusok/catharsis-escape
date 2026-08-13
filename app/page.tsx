@@ -103,6 +103,115 @@ function formatPhone(value: string) {
   );
 }
 
+function StoreMap() {
+  const [zoom, setZoom] = useState(17);
+  const latitude = 35.1547355;
+  const longitude = 129.0606628;
+  const tileSize = 256;
+  const columns = 7;
+  const rows = 5;
+  const scale = 2 ** zoom;
+  const centerX = ((longitude + 180) / 360) * scale;
+  const latitudeRad = (latitude * Math.PI) / 180;
+  const centerY =
+    ((1 - Math.asinh(Math.tan(latitudeRad)) / Math.PI) / 2) * scale;
+  const startX = Math.floor(centerX) - 3;
+  const startY = Math.floor(centerY) - 2;
+  const offsetX = (centerX - startX) * tileSize;
+  const offsetY = (centerY - startY) * tileSize;
+  const tiles = Array.from({ length: columns * rows }, (_, index) => {
+    const column = index % columns;
+    const row = Math.floor(index / columns);
+    return {
+      key: `${zoom}-${startX + column}-${startY + row}`,
+      x: startX + column,
+      y: startY + row,
+      left: column * tileSize,
+      top: row * tileSize,
+    };
+  });
+
+  return (
+    <div className="store-map" aria-label="카타르시스 이스케이프 주변 지도">
+      <div
+        className="map-tile-grid"
+        aria-hidden="true"
+        style={{
+          left: `calc(50% - ${offsetX}px)`,
+          top: `calc(50% - ${offsetY}px)`,
+          width: columns * tileSize,
+          height: rows * tileSize,
+        }}
+      >
+        {tiles.map((tile) => (
+          // Raw map tiles are already optimized raster assets served at a fixed size.
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            key={tile.key}
+            src={`https://tile.openstreetmap.org/${zoom}/${tile.x}/${tile.y}.png`}
+            alt=""
+            width={tileSize}
+            height={tileSize}
+            draggable={false}
+            loading="lazy"
+            referrerPolicy="no-referrer"
+            style={{ left: tile.left, top: tile.top }}
+          />
+        ))}
+      </div>
+      <div className="map-tone" aria-hidden="true" />
+      <div className="map-marker" aria-hidden="true">
+        <span className="map-pin-dot" />
+        <div>
+          <strong>카타르시스 이스케이프</strong>
+          <span>3층</span>
+        </div>
+      </div>
+      <div className="map-controls" aria-label="지도 확대 및 축소">
+        <button
+          type="button"
+          onClick={() => setZoom((value) => Math.min(18, value + 1))}
+          disabled={zoom === 18}
+          aria-label="지도 확대"
+        >
+          ＋
+        </button>
+        <button
+          type="button"
+          onClick={() => setZoom((value) => Math.max(15, value - 1))}
+          disabled={zoom === 15}
+          aria-label="지도 축소"
+        >
+          −
+        </button>
+      </div>
+      <div className="map-place-card">
+        <Pin />
+        <div>
+          <strong>서면역 2번 출구에서 378m</strong>
+          <span>부산진구 중앙대로680번가길 29</span>
+        </div>
+      </div>
+      <a
+        className="map-naver-link"
+        href="https://map.naver.com/p/entry/place/1626605361"
+        target="_blank"
+        rel="noreferrer"
+      >
+        네이버 지도에서 크게 보기 <Arrow />
+      </a>
+      <a
+        className="map-attribution"
+        href="https://www.openstreetmap.org/copyright"
+        target="_blank"
+        rel="noreferrer"
+      >
+        © OpenStreetMap contributors
+      </a>
+    </div>
+  );
+}
+
 export default function Home() {
   const dates = useMemo(
     () =>
@@ -215,6 +324,20 @@ export default function Home() {
           role="img"
           aria-label="미스터리한 분위기의 방탈출 공간"
         />
+        <div className="hero-facts" aria-label="매장 정보">
+          <div>
+            <span>운영시간</span>
+            <strong>매일 10:30–24:00</strong>
+          </div>
+          <div>
+            <span>오시는 길</span>
+            <strong>서면역 2번 출구 378m</strong>
+          </div>
+          <a href="tel:0518023341">
+            <span>예약 문의</span>
+            <strong>051-802-3341</strong>
+          </a>
+        </div>
       </section>
 
       <section className="themes-section" id="themes">
@@ -261,10 +384,7 @@ export default function Home() {
       <section className="booking-section" id="booking">
         <aside className="booking-intro">
           <h2>예약하기</h2>
-          <p>
-            테마와 방문 일정을 선택하고 예약자 정보를 입력해 주세요.
-            선택이 끝나면 예약 내용을 확인할 수 있습니다.
-          </p>
+          <p>원하는 테마와 방문 시간을 선택해 주세요.</p>
           <a
             href="https://booking.naver.com/booking/12/bizes/737799"
             target="_blank"
@@ -431,7 +551,7 @@ export default function Home() {
               </p>
             </div>
             <button type="submit" disabled={!ready}>
-              내용 확인 <Arrow />
+              예약 내용 확인 <Arrow />
             </button>
           </div>
         </form>
@@ -555,22 +675,7 @@ export default function Home() {
       </section>
 
       <section className="location-section" id="location">
-        <a
-          className="location-visual"
-          href="https://map.naver.com/p/entry/place/1626605361"
-          target="_blank"
-          rel="noreferrer"
-          aria-label="네이버 지도에서 카타르시스 이스케이프 위치 보기"
-        >
-          <div className="location-card">
-            <Pin />
-            <div>
-              <strong>서면역 2번 출구에서 378m</strong>
-              <span>네이버 지도에서 위치 확인</span>
-            </div>
-            <Arrow />
-          </div>
-        </a>
+        <StoreMap />
         <div className="location-info">
           <h2>오시는 길</h2>
           <dl>
@@ -644,11 +749,11 @@ export default function Home() {
           </details>
           <details>
             <summary>
-              온라인 예약은 어떻게 하나요?<span>＋</span>
+              예약 변경은 어떻게 하나요?<span>＋</span>
             </summary>
             <p>
-              예약 정보를 확인한 뒤 네이버 예약에서 최종 예약을 진행해
-              주세요. 전화로도 문의할 수 있습니다.
+              일정 변경이 필요한 경우 이용 전 매장으로 전화해 주세요. 당일
+              변경은 예약 상황에 따라 어려울 수 있습니다.
             </p>
           </details>
         </div>
@@ -733,7 +838,7 @@ export default function Home() {
               </div>
             </dl>
             <p className="booking-next">
-              네이버 예약에서 최종 예약을 진행해 주세요.
+              예약 확정은 네이버 예약에서 이어집니다.
             </p>
             <div className="modal-actions">
               <a

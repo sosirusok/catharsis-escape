@@ -4,13 +4,16 @@ export { DEFAULT_SETTINGS, DEFAULT_THEMES } from "@/lib/models";
 
 export const DEFAULT_TIMES = [630, 720, 810, 900, 990, 1080, 1170, 1260, 1350];
 
-type RuntimeEnv = {
+export type RuntimeEnv = {
   DB?: D1Database;
   BUCKET?: R2Bucket;
   ADMIN_ACCESS_KEY?: string;
   ADMIN_SESSION_SECRET?: string;
   BOOKING_DATA_KEY?: string;
   BOOKING_LOOKUP_PEPPER?: string;
+  TOSS_CLIENT_KEY?: string;
+  TOSS_SECRET_KEY?: string;
+  PUBLIC_SITE_URL?: string;
 };
 
 export function getBucket(): R2Bucket {
@@ -41,6 +44,37 @@ export function json(data: unknown, status = 200) {
 
 export function publicError(code: string, message: string, status: number) {
   return json({ ok: false, error: { code, message } }, status);
+}
+
+export async function readJsonBody<T>(request: Request, maximumBytes: number): Promise<T> {
+  const declared = Number(request.headers.get("content-length") || "0");
+  if (declared > maximumBytes) throw new Error("PAYLOAD_TOO_LARGE");
+  if (!request.body) throw new Error("INVALID_JSON");
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maximumBytes) {
+      await reader.cancel().catch(() => undefined);
+      throw new Error("PAYLOAD_TOO_LARGE");
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  let raw: string;
+  try { raw = new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
+  catch { throw new Error("INVALID_JSON"); }
+  try { return JSON.parse(raw) as T; }
+  catch { throw new Error("INVALID_JSON"); }
+}
+
+export function isJsonRequest(request: Request): boolean {
+  return request.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase() === "application/json";
 }
 
 export function normalizePhone(value: unknown): string | null {

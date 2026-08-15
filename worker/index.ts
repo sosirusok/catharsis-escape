@@ -10,6 +10,9 @@ interface Env {
   ADMIN_SESSION_SECRET?: string;
   BOOKING_DATA_KEY?: string;
   BOOKING_LOOKUP_PEPPER?: string;
+  TOSS_CLIENT_KEY?: string;
+  TOSS_SECRET_KEY?: string;
+  PUBLIC_SITE_URL?: string;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
@@ -91,6 +94,9 @@ const worker = {
     }
 
     const response = await handler.fetch(request, env, ctx);
+    if (request.method === "GET" && url.pathname === "/api/public/availability") {
+      ctx.waitUntil(import("@/lib/payment-flow").then(({ reconcileStalePayments }) => reconcileStalePayments(Date.now(), 1)).catch(() => undefined));
+    }
     if (corsProfile && requestOrigin === GITHUB_PAGES_ORIGIN) {
       return withApiCors(response, corsProfile);
     }

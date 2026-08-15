@@ -132,6 +132,14 @@ body:has(.admin-shell) { background: var(--admin-paper); color: var(--admin-ink)
 .admin-modal.theme-editor { width: min(1040px,100%); }
 .admin-modal-close { position: absolute; right: 19px; top: 17px; border: 0; background: transparent; cursor: pointer; font-size: 25px; color: var(--admin-muted); }
 .admin-modal h2 { margin: 6px 0 27px; font-size: 28px; }
+.admin-payment-summary { margin: -8px 0 22px; padding: 15px 17px; border: 1px solid #ded4c6; border-radius: 12px; background: #f8f4ed; display: grid; grid-template-columns: 1fr auto; gap: 3px 12px; }
+.admin-payment-summary span { color: #7b1f2d; font-size: 13px; font-weight: 800; }
+.admin-payment-summary strong { grid-row: span 2; align-self: center; color: #241c1b; font-size: 20px; }
+.admin-payment-summary small { color: #716965; font-size: 13px; }
+.admin-state-notice { margin: -8px 0 18px; padding: 12px 14px; border: 1px solid rgba(184, 145, 74, .34); border-radius: 10px; background: rgba(184, 145, 74, .1); color: #6f5424; font-size: 14px; line-height: 1.55; }
+.admin-state-notice > div { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.admin-state-notice button { border: 1px solid rgba(111, 84, 36, .34); border-radius: 8px; background: #fffaf0; color: #6f5424; padding: 8px 10px; font: inherit; font-weight: 750; cursor: pointer; }
+.admin-state-notice button:disabled { opacity: .55; cursor: wait; }
 .admin-form-grid { display: grid; grid-template-columns: repeat(2,1fr); gap: 16px; }
 .admin-form-grid label { display: grid; gap: 7px; color: #57504b; font-size: 12px; font-weight: 650; }
 .admin-form-grid label.full, .full { grid-column: 1 / -1; }

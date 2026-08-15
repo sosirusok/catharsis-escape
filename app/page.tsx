@@ -370,6 +370,16 @@ export default function Home() {
               변경은 예약 상황에 따라 어려울 수 있습니다.
             </p>
           </details>
+          <details>
+            <summary>
+              결제 취소와 환불은 어떻게 되나요?<span>＋</span>
+            </summary>
+            <p>
+              예약 조회 화면에서 취소 가능한 예약은 카드결제가 전액 취소됩니다.
+              취소 가능 시간이 지난 예약은 매장으로 문의해 주세요. 카드사 반영 시점은
+              결제수단에 따라 달라질 수 있습니다.
+            </p>
+          </details>
         </div>
       </section>
 

@@ -1,5 +1,6 @@
 import { requireAdminApi } from "@/lib/admin-api";
 import { decryptPrivate, getD1, json } from "@/lib/booking";
+import { expirePaymentHolds, reconcileStalePayments } from "@/lib/payment-flow";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +11,8 @@ export async function GET(request: Request) {
   if (auth.response) return auth.response;
   try {
     const db = getD1();
+    await expirePaymentHolds();
+    await reconcileStalePayments();
     const url = new URL(request.url);
     const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" }).format(new Date());
     const from = url.searchParams.get("from") || today;
@@ -38,6 +41,11 @@ export async function GET(request: Request) {
       source: String(row.source),
       admin_memo: String(row.admin_memo || ""),
       created_at: String(row.created_at),
+      payment_status: String(row.payment_status || "manual"),
+      payment_method: String(row.payment_method || ""),
+      paid_amount: Number(row.paid_amount || 0),
+      paid_at: row.paid_at ? String(row.paid_at) : "",
+      refunded_at: row.refunded_at ? String(row.refunded_at) : "",
       customer_name: await decryptPrivate(row.customer_name_enc),
       phone: await decryptPrivate(row.phone_enc),
     })));

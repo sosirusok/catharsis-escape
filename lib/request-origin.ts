@@ -12,8 +12,11 @@ export function requestOrigin(request: Request): string | null {
 }
 
 export function isPublicWebOriginAllowed(request: Request): boolean {
+  const raw = request.headers.get("origin");
+  if (raw === null) return true;
+  if (raw.trim().toLowerCase() === "null") return false;
   const origin = requestOrigin(request);
-  if (!origin) return true;
+  if (!origin) return false;
   return origin === new URL(request.url).origin || origin === PUBLIC_PAGES_ORIGIN;
 }
 

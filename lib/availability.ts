@@ -8,6 +8,8 @@ import {
   startAtUtcMs,
   weekdayKst,
 } from "@/lib/booking";
+import { expirePaymentHolds } from "@/lib/payment-flow";
+import { slotsOverlap } from "@/lib/scheduling";
 
 import type { PublicDateAvailability, PublicSlot } from "@/lib/models";
 export type { PublicDateAvailability, PublicSlot } from "@/lib/models";
@@ -15,7 +17,7 @@ export type { PublicDateAvailability, PublicSlot } from "@/lib/models";
 type RuleRow = { weekday: number; start_minute: number };
 type OverrideRow = { service_date: string; start_minute: number; action: string; duration_min: number | null };
 type ClosureRow = { scope: string; theme_id: string | null; start_date: string; end_date: string; public_message: string };
-type ReservationRow = { slot_id: string };
+type ReservationRow = { slot_id: string; service_date: string; start_minute: number; duration_min: number; payment_status: string };
 
 export function slotId(themeId: string, date: string, startMinute: number) {
   return `slot_${themeId}_${date.replaceAll("-", "")}_${startMinute}`;
@@ -23,6 +25,7 @@ export function slotId(themeId: string, date: string, startMinute: number) {
 
 export async function buildAvailability(themeId: string, days?: number) {
   const db = getD1();
+  await expirePaymentHolds();
   const [settings, themes] = await Promise.all([getSettings(db), getThemes("active", db)]);
   const theme = themes.find((item) => item.id === themeId);
   if (!theme) return null;
@@ -37,11 +40,10 @@ export async function buildAvailability(themeId: string, days?: number) {
     db.prepare("SELECT weekday, start_minute FROM schedule_rules WHERE theme_id = ? ORDER BY weekday, start_minute").bind(themeId).all<RuleRow>(),
     db.prepare("SELECT service_date, start_minute, action, duration_min FROM slot_overrides WHERE theme_id = ? AND service_date BETWEEN ? AND ? ORDER BY service_date, start_minute").bind(themeId, from, to).all<OverrideRow>(),
     db.prepare("SELECT scope, theme_id, start_date, end_date, public_message FROM closures WHERE start_date <= ? AND end_date >= ? AND (scope = 'store' OR theme_id = ?)").bind(to, from, themeId).all<ClosureRow>(),
-    db.prepare("SELECT slot_id FROM reservations WHERE theme_id = ? AND service_date BETWEEN ? AND ? AND status IN ('confirmed','checked_in')").bind(themeId, from, to).all<ReservationRow>(),
+    db.prepare("SELECT slot_id, service_date, start_minute, duration_min, payment_status FROM reservations WHERE theme_id = ? AND service_date BETWEEN ? AND ? AND status IN ('confirmed','checked_in')").bind(themeId, from, to).all<ReservationRow>(),
   ]);
 
   const rules = rulesResult.results;
-  const booked = new Set(reservationResult.results.map((item) => item.slot_id));
   const overrideMap = new Map(overrideResult.results.map((item) => [`${item.service_date}:${item.start_minute}`, item]));
   const dates: PublicDateAvailability[] = [];
 
@@ -60,12 +62,17 @@ export async function buildAvailability(themeId: string, days?: number) {
       const durationMin = override?.duration_min || theme.durationMin;
       const startMs = startAtUtcMs(date, startMinute);
       const blocked = override?.action === "block";
+      const occupied = reservationResult.results.find((reservation) => reservation.service_date === date && slotsOverlap(
+        { startMinute, durationMin },
+        { startMinute: reservation.start_minute, durationMin: reservation.duration_min },
+        theme.turnoverMin,
+      ));
       return {
         id,
         time: minuteToTime(startMinute),
         startMinute,
         durationMin,
-        status: closure || blocked ? "blocked" : booked.has(id) ? "booked" : startMs <= cutoffMs || !settings.bookingOpen ? "closed" : "available",
+        status: closure || blocked ? "blocked" : occupied ? (["ready", "confirming", "review_required"].includes(occupied.payment_status) ? "held" : "booked") : startMs <= cutoffMs || !settings.bookingOpen ? "closed" : "available",
       } satisfies PublicSlot;
     });
     dates.push({ date, closed: Boolean(closure), closureMessage: closure?.public_message || "", slots });

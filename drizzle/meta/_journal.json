@@ -15,6 +15,13 @@
       "when": 1786606742210,
       "tag": "0001_fixed_groot",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1786769838020,
+      "tag": "0002_sticky_mathemanic",
+      "breakpoints": true
     }
   ]
 }

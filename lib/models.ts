@@ -42,5 +42,5 @@ export const DEFAULT_THEMES: ThemeRecord[] = [
   { id: "knock", slug: "knock-knock", name: "똑똑! 계시나요?", shortName: "똑똑! 계시나요?", genre: "범죄 · 잠입", synopsis: "여기가 그 집 맞아? 그래, 맞다니까. 문이 열리면 계획대로 움직이세요.", artKey: "knock", imageKey: null, difficulty: 4, difficultyLabel: "문제 중심", durationMin: 60, turnoverMin: 30, minPeople: 2, maxPeople: 5, notice: "", prices: { "2": 44000, "3": 60000, "4": 72000, "5": 90000 }, status: "active", displayOrder: 3 },
 ];
 
-export type PublicSlot = { id: string; time: string; startMinute: number; durationMin: number; status: "available" | "booked" | "closed" | "blocked" };
+export type PublicSlot = { id: string; time: string; startMinute: number; durationMin: number; status: "available" | "held" | "booked" | "closed" | "blocked" };
 export type PublicDateAvailability = { date: string; closed: boolean; closureMessage: string; slots: PublicSlot[] };

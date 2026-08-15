@@ -1624,6 +1624,10 @@ footer {
 .booking-code { margin: 22px 0 4px; padding: 18px 20px; display: flex; align-items: center; justify-content: space-between; border: 1px solid #d5c7b5; background: #f5efe6; color: #2d2824; }
 .booking-code span { color: #7d746b; font-size: 12px; }
 .booking-code strong { color: var(--wine); font: 700 23px Georgia,serif; letter-spacing: .08em; }
+.booking-code button { border: 1px solid #c8b9a6; border-radius: 999px; padding: 7px 12px; background: #fffaf2; color: var(--wine); font-weight: 700; cursor: pointer; }
+.payment-test-notice { margin: 14px 0 2px; padding: 13px 15px; border: 1px solid #d6c39e; border-radius: 10px; background: #fbf4e5; display: flex; gap: 4px; flex-direction: column; color: #5e4c2b; }
+.payment-test-notice strong { font-size: 14px; }
+.payment-test-notice span { font-size: 14px; line-height: 1.45; }
 .success-seal { width: 58px; height: 58px; margin-bottom: 22px; display: grid; place-items: center; border-radius: 50%; background: #e5eee8; color: #2e7355; font-size: 24px; }
 .success-close { width: 100%; margin-top: 23px; }
 .lookup-form { display: grid; gap: 17px; }

@@ -294,3 +294,36 @@ test("serves exact GitHub Pages CORS and audience-bound administrator sessions",
   );
   assert.equal(wrongAudience.status, 401);
 });
+
+test("requires payment before a public reservation and protects owner app pairing", async () => {
+  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
+  workerUrl.searchParams.set("payment-gate-test", `${process.pid}-${Date.now()}`);
+  const { default: worker } = await import(workerUrl.href);
+  const pagesOrigin = "https://sosirusok.github.io";
+
+  const direct = await worker.fetch(
+    new Request("http://localhost/api/public/reservations", {
+      method: "POST",
+      headers: { origin: pagesOrigin, "content-type": "application/json" },
+      body: "{}",
+    }),
+    testEnv(),
+    testContext,
+  );
+  assert.equal(direct.status, 402);
+  assert.equal((await direct.json()).error.code, "PAYMENT_REQUIRED");
+
+  const pairing = await worker.fetch(
+    new Request("http://localhost/api/owner-app/pair", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ accessKey: "wrong-owner-key", deviceName: "Owner Phone" }),
+    }),
+    testEnv(),
+    testContext,
+  );
+  assert.equal(pairing.status, 401);
+  const pairingBody = await pairing.json();
+  assert.equal(pairingBody.error.code, "INVALID_ACCESS_KEY");
+  assert.equal(pairingBody.token, undefined);
+});

@@ -25,7 +25,7 @@ for (const file of textFiles) {
   const text = await readFile(file, "utf8");
   if (/url\(["']?\/images\//.test(text)) throw new Error(`Unscoped image URL in ${file}`);
   if (/fetch\(["'`]\/api\//.test(text)) throw new Error(`Unscoped API URL in ${file}`);
-  if (/signin-with-chatgpt|ADMIN_ACCESS_KEY|BOOKING_DATA_KEY/.test(text)) throw new Error(`Server-only value reference in ${file}`);
+  if (/signin-with-chatgpt|ADMIN_ACCESS_KEY|BOOKING_DATA_KEY|TOSS_SECRET_KEY|test_gsk_|live_gsk_/.test(text)) throw new Error(`Server-only value reference in ${file}`);
 }
 
 console.log(`GitHub Pages artifact ready: ${files.length} files`);

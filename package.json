@@ -10,7 +10,7 @@
     "dev": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vite",
     "build": "bash scripts/build-verified.sh",
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
-    "test": "npm run build && node --test tests/rendered-html.test.mjs",
+    "test": "npm run build && node --test tests/rendered-html.test.mjs && node --import tsx --test tests/payment-flow.test.ts",
     "export:pages:customer": "PAGES_TARGET=customer PAGES_BASE=/catharsis-escape/ vite build --config vite.pages.config.ts && node scripts/finalize-pages.mjs",
     "export:pages:admin": "PAGES_TARGET=admin PAGES_BASE=/catharsis-2vdf9n5pq1/ vite build --config vite.pages.config.ts && node scripts/finalize-pages.mjs",
     "validate:artifact": "bash scripts/validate-artifact.sh",

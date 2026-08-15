@@ -48,7 +48,6 @@ export default function DynamicRates({ initialThemes }: { initialThemes: ThemeRe
     <section className="rates-section" id="price">
       <div className="shell rates-layout">
         <div className="rates-title">
-          <p className="rates-eyebrow">PRICE GUIDE</p>
           <h2>이용 요금</h2>
           <p>테마와 이용 인원에 맞는 요금을 확인해 주세요.</p>
         </div>

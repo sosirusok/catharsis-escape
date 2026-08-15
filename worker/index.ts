@@ -12,6 +12,7 @@ interface Env {
   BOOKING_LOOKUP_PEPPER?: string;
   TOSS_CLIENT_KEY?: string;
   TOSS_SECRET_KEY?: string;
+  ALLOW_PUBLIC_TEST_PAYMENTS?: string;
   PUBLIC_SITE_URL?: string;
   FIREBASE_PROJECT_ID?: string;
   FIREBASE_CLIENT_EMAIL?: string;
@@ -112,6 +113,13 @@ const worker = {
   async scheduled(_controller: unknown, env: Env, ctx: ExecutionContext): Promise<void> {
     (globalThis as typeof globalThis & { __SITES_ENV__?: Env }).__SITES_ENV__ = env;
     ctx.waitUntil(import("@/lib/owner-push").then(({ dispatchOwnerPushes }) => dispatchOwnerPushes(25)).catch(() => undefined));
+    ctx.waitUntil(import("@/lib/payment-flow").then(({ cleanupRetainedData, reconcileRecentProviderPayments, reconcileStalePayments }) =>
+      Promise.allSettled([
+        reconcileStalePayments(Date.now(), 3),
+        reconcileRecentProviderPayments(Date.now(), 10),
+        cleanupRetainedData(Date.now(), 25),
+      ]),
+    ).then(() => undefined).catch(() => undefined));
   },
 };
 

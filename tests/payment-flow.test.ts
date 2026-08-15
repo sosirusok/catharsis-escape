@@ -3,13 +3,16 @@ import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 
-import { getPaymentResult, confirmReservationPayment, refundReservationPayment, releaseReviewedUnpaidReservation } from "../lib/payment-flow";
+import { cleanupRetainedData, getPaymentResult, confirmReservationPayment, refundReservationPayment, releaseReviewedUnpaidReservation } from "../lib/payment-flow";
 import { addDays, encryptPrivate, kstDateKey, readJsonBody, sha256, weekdayKst } from "../lib/booking";
 import { buildAvailability } from "../lib/availability";
 import { isPublicWebOriginAllowed } from "../lib/request-origin";
 import { dispatchOwnerPushes } from "../lib/owner-push";
 import { DELETE as revokeDevice, PATCH as registerPushDevice } from "../app/api/owner-app/device/route";
 import { POST as checkoutPayment } from "../app/api/public/payments/checkout/route";
+import { POST as tossWebhook } from "../app/api/public/payments/toss/webhook/route";
+import { PUT as updateSettings } from "../app/api/admin/settings/route";
+import { ADMIN_SESSION_COOKIE, createAdminSession } from "../lib/admin";
 
 class SqliteStatement {
   private values: unknown[] = [];
@@ -63,7 +66,7 @@ class SqliteD1 {
 
 function applyMigrations(database: DatabaseSync) {
   database.exec("PRAGMA foreign_keys = ON");
-  for (const file of ["drizzle/0000_funny_shiva.sql", "drizzle/0001_fixed_groot.sql", "drizzle/0002_sticky_mathemanic.sql", "drizzle/0003_wonderful_dazzler.sql"]) {
+  for (const file of ["drizzle/0000_funny_shiva.sql", "drizzle/0001_fixed_groot.sql", "drizzle/0002_sticky_mathemanic.sql", "drizzle/0003_wonderful_dazzler.sql", "drizzle/0004_fair_terrax.sql"]) {
     const migration = readFileSync(new URL(`../${file}`, import.meta.url), "utf8");
     for (const statement of migration.split("--> statement-breakpoint").map((value) => value.trim()).filter(Boolean)) database.exec(statement);
   }
@@ -84,7 +87,7 @@ function payment(id: string, status = "DONE") {
     totalAmount: 44_000,
     balanceAmount: status === "CANCELED" ? 0 : 44_000,
     approvedAt: "2026-08-15T05:00:00Z",
-    receipt: { url: "https://example.invalid/receipt" },
+    receipt: { url: "https://dashboard.tosspayments.com/sales-slip?transactionId=unit" },
     cancels: status === "CANCELED" ? [{ cancelAmount: 44_000, canceledAt: "2026-08-15T05:10:00Z" }] : [],
   };
 }
@@ -122,6 +125,8 @@ test("payment confirmation, idempotent recovery, refund, and device revocation s
     assert.equal(confirmed.payment_status, "paid");
     assert.equal((await confirmReservationPayment({ state, orderId: "CTP_alpha1", paymentKey: "payment_key_alpha1", amount: 44_000 })).payment_status, "paid");
     assert.equal(database.prepare("SELECT COUNT(*) count FROM owner_alerts WHERE reservation_id = 'alpha1' AND type = 'reservation.confirmed'").get().count, 1);
+    assert.match(String(database.prepare("SELECT receipt_url FROM reservations WHERE id = 'alpha1'").get()?.receipt_url || ""), /^https:\/\/dashboard\.tosspayments\.com\//);
+    assert.equal(database.prepare("SELECT COUNT(*) count FROM legal_transaction_records WHERE reservation_id = 'alpha1'").get().count, 1);
 
     await refundReservationPayment("alpha1", "테스트 환불");
     const refunded = database.prepare("SELECT status, payment_status FROM reservations WHERE id = 'alpha1'").get() as { status: string; payment_status: string };
@@ -227,8 +232,9 @@ test("overlapping manual reservations close public slots and a concurrent closur
     DB: d1,
     TOSS_CLIENT_KEY: ["test", "gck", "unit"].join("_"),
     TOSS_SECRET_KEY: ["test", "gsk", "unit"].join("_"),
-    BOOKING_DATA_KEY: "unit-test-booking-data-key",
-    BOOKING_LOOKUP_PEPPER: "unit-test-booking-lookup-pepper",
+    BOOKING_DATA_KEY: "unit-test-booking-data-key-32-bytes-minimum",
+    BOOKING_LOOKUP_PEPPER: "unit-test-booking-lookup-pepper-32-bytes-minimum",
+    ALLOW_PUBLIC_TEST_PAYMENTS: "1",
   };
   const date = addDays(kstDateKey(), 2);
   const weekday = weekdayKst(date);
@@ -256,6 +262,12 @@ test("overlapping manual reservations close public slots and a concurrent closur
       name: "테스트손님",
       phone: "01012345678",
       consentVersion: "2026-08-13",
+      termsVersion: "2026-08-15",
+      refundPolicyVersion: "2026-08-15",
+      consentAccepted: true,
+      termsAccepted: true,
+      refundPolicyAccepted: true,
+      paymentNoticeWaived: true,
       requestId: "27fa0db9-a390-4dce-a441-30f69a6f723d",
     }),
   }));
@@ -277,8 +289,8 @@ test("owner push registration, transactional outbox, and FCM delivery expose no 
   const privateKey = pemPrivateKey(await crypto.subtle.exportKey("pkcs8", keyPair.privateKey));
   (globalThis as typeof globalThis & { __SITES_ENV__?: unknown }).__SITES_ENV__ = {
     DB: d1,
-    BOOKING_DATA_KEY: "unit-test-booking-data-key",
-    BOOKING_LOOKUP_PEPPER: "unit-test-booking-lookup-pepper",
+    BOOKING_DATA_KEY: "unit-test-booking-data-key-32-bytes-minimum",
+    BOOKING_LOOKUP_PEPPER: "unit-test-booking-lookup-pepper-32-bytes-minimum",
     FIREBASE_PROJECT_ID: "catharsis-unit",
     FIREBASE_CLIENT_EMAIL: "fcm-unit@catharsis-unit.iam.gserviceaccount.com",
     FIREBASE_PRIVATE_KEY: privateKey,
@@ -328,4 +340,161 @@ test("owner push registration, transactional outbox, and FCM delivery expose no 
     globalThis.fetch = originalFetch;
     database.close();
   }
+});
+
+test("checkout requires affirmative policy attestations and snapshots the accepted versions", async () => {
+  const database = new DatabaseSync(":memory:");
+  applyMigrations(database);
+  const d1 = new SqliteD1(database);
+  (globalThis as typeof globalThis & { __SITES_ENV__?: unknown }).__SITES_ENV__ = {
+    DB: d1,
+    TOSS_CLIENT_KEY: ["test", "gck", "unit"].join("_"),
+    TOSS_SECRET_KEY: ["test", "gsk", "unit"].join("_"),
+    BOOKING_DATA_KEY: "unit-test-booking-data-key-32-bytes-minimum",
+    BOOKING_LOOKUP_PEPPER: "unit-test-booking-lookup-pepper-32-bytes-minimum",
+    ALLOW_PUBLIC_TEST_PAYMENTS: "1",
+  };
+  const date = addDays(kstDateKey(), 3);
+  const weekday = weekdayKst(date);
+  database.prepare("INSERT INTO themes (id, slug, name, short_name, genre, synopsis, duration_min, turnover_min, prices_json) VALUES ('policy', 'policy', '정책 테스트', '정책', '테스트', '테스트', 60, 30, '{\"2\":44000}')").run();
+  database.prepare("INSERT INTO schedule_rules (theme_id, weekday, start_minute) VALUES ('policy', ?, 630)").run(weekday);
+  const basePayload = {
+    slotId: `slot_policy_${date.replaceAll("-", "")}_630`,
+    partySize: 2,
+    name: "정책손님",
+    phone: "01012345678",
+    consentVersion: "2026-08-13",
+    termsVersion: "2026-08-15",
+    refundPolicyVersion: "2026-08-15",
+  };
+  const request = (body: Record<string, unknown>, ip: string) => new Request("https://backend.example/api/public/payments/checkout", {
+    method: "POST",
+    headers: { origin: "https://sosirusok.github.io", "content-type": "application/json", "cf-connecting-ip": ip },
+    body: JSON.stringify(body),
+  });
+
+  const rejected = await checkoutPayment(request({ ...basePayload, requestId: "27fa0db9-a390-4dce-a441-30f69a6f7001" }, "127.0.0.21"));
+  assert.equal(rejected.status, 400);
+  assert.equal((await rejected.json()).error.code, "POLICY_AGREEMENT_REQUIRED");
+
+  const accepted = await checkoutPayment(request({
+    ...basePayload,
+    requestId: "27fa0db9-a390-4dce-a441-30f69a6f7002",
+    consentAccepted: true,
+    termsAccepted: true,
+    refundPolicyAccepted: true,
+    paymentNoticeWaived: true,
+  }, "127.0.0.22"));
+  assert.equal(accepted.status, 201);
+  const snapshot = database.prepare("SELECT consent_version, terms_version, refund_policy_version, cancel_cutoff_minutes_snapshot, payment_notice_waived, policy_accepted_at FROM reservations WHERE request_id = '27fa0db9-a390-4dce-a441-30f69a6f7002'").get() as Record<string, unknown>;
+  assert.equal(snapshot.consent_version, "2026-08-13");
+  assert.equal(snapshot.terms_version, "2026-08-15");
+  assert.equal(snapshot.refund_policy_version, "2026-08-15");
+  assert.equal(snapshot.cancel_cutoff_minutes_snapshot, 1440);
+  assert.equal(snapshot.payment_notice_waived, 1);
+  assert.ok(snapshot.policy_accepted_at);
+  database.close();
+});
+
+test("Toss status webhook is deduplicated and reconciles a provider-side full cancellation", async () => {
+  const database = new DatabaseSync(":memory:");
+  applyMigrations(database);
+  const d1 = new SqliteD1(database);
+  (globalThis as typeof globalThis & { __SITES_ENV__?: unknown }).__SITES_ENV__ = {
+    DB: d1,
+    TOSS_CLIENT_KEY: ["test", "gck", "unit"].join("_"),
+    TOSS_SECRET_KEY: ["test", "gsk", "unit"].join("_"),
+  };
+  seedReservation(database, "webhk6", "slot-webhook", "paid", 900);
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    if (String(input).endsWith("/payments/orders/CTP_webhk6")) return Response.json(payment("webhk6", "CANCELED"));
+    return Response.json({}, { status: 404 });
+  };
+  const webhookBody = JSON.stringify({
+    eventType: "PAYMENT_STATUS_CHANGED",
+    createdAt: "2026-08-15T05:10:00Z",
+    data: { orderId: "CTP_webhk6", paymentKey: "payment_key_webhk6", status: "CANCELED" },
+  });
+  const webhookRequest = () => new Request("https://backend.example/api/public/payments/toss/webhook", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: webhookBody,
+  });
+  try {
+    assert.equal((await tossWebhook(webhookRequest())).status, 200);
+    assert.equal((await tossWebhook(webhookRequest())).status, 200);
+    const reservation = database.prepare("SELECT status, payment_status FROM reservations WHERE id = 'webhk6'").get() as { status: string; payment_status: string };
+    assert.equal(reservation.status, "cancelled");
+    assert.equal(reservation.payment_status, "refunded");
+    const event = database.prepare("SELECT COUNT(*) count, MAX(attempts) attempts FROM payment_webhook_events").get() as { count: number; attempts: number };
+    assert.equal(event.count, 1);
+    assert.equal(event.attempts, 1);
+    assert.ok(database.prepare("SELECT refunded_at FROM legal_transaction_records WHERE reservation_id = 'webhk6'").get()?.refunded_at);
+  } finally {
+    globalThis.fetch = originalFetch;
+    database.close();
+  }
+});
+
+test("retention cleanup removes operational PII while keeping and later expiring restricted legal records", async () => {
+  const database = new DatabaseSync(":memory:");
+  applyMigrations(database);
+  const d1 = new SqliteD1(database);
+  (globalThis as typeof globalThis & { __SITES_ENV__?: unknown }).__SITES_ENV__ = {
+    DB: d1,
+    BOOKING_DATA_KEY: "unit-test-booking-data-key-32-bytes-minimum",
+    BOOKING_LOOKUP_PEPPER: "unit-test-booking-lookup-pepper-32-bytes-minimum",
+  };
+  seedReservation(database, "retent7", "slot-retention", "paid", 990);
+  database.prepare("INSERT INTO owner_alerts (reservation_id,type,booking_code,theme_name,service_date,start_minute,party_size,amount,status,payment_status,customer_name_enc,phone_enc) SELECT id,'reservation.confirmed',booking_code,theme_name_snapshot,service_date,start_minute,party_size,price_total,status,payment_status,customer_name_enc,phone_enc FROM reservations WHERE id='retent7'").run();
+  const cleanupAt = Date.UTC(2027, 0, 1);
+  database.prepare("INSERT INTO legal_transaction_records (reservation_id,booking_code,customer_name_enc,phone_enc,payment_order_id,theme_name,service_date,start_minute,party_size,amount,paid_at,retention_until) SELECT id,booking_code,customer_name_enc,phone_enc,payment_order_id,theme_name_snapshot,service_date,start_minute,party_size,price_total,'2026-08-15T05:00:00Z',? FROM reservations WHERE id='retent7'").run(cleanupAt + 100 * 86_400_000);
+
+  assert.equal((await cleanupRetainedData(cleanupAt)).operationalPiiPurged, 1);
+  const purged = database.prepare("SELECT phone_hash, phone_last4, request_fingerprint, pii_purged_at FROM reservations WHERE id='retent7'").get() as Record<string, unknown>;
+  assert.equal(purged.phone_hash, "");
+  assert.equal(purged.phone_last4, "");
+  assert.equal(purged.request_fingerprint, "");
+  assert.ok(purged.pii_purged_at);
+  assert.equal(database.prepare("SELECT COUNT(*) count FROM owner_alerts WHERE reservation_id='retent7'").get().count, 0);
+  assert.equal(database.prepare("SELECT COUNT(*) count FROM legal_transaction_records WHERE reservation_id='retent7'").get().count, 1);
+
+  await cleanupRetainedData(cleanupAt + 101 * 86_400_000);
+  assert.equal(database.prepare("SELECT COUNT(*) count FROM legal_transaction_records WHERE reservation_id='retent7'").get().count, 0);
+  database.close();
+});
+
+test("partial administrator setting updates preserve omitted legal and booking fields", async () => {
+  const database = new DatabaseSync(":memory:");
+  applyMigrations(database);
+  const d1 = new SqliteD1(database);
+  (globalThis as typeof globalThis & { __SITES_ENV__?: unknown }).__SITES_ENV__ = {
+    DB: d1,
+    ADMIN_SESSION_SECRET: "unit-test-admin-session-secret-32-bytes-minimum",
+  };
+  database.prepare("UPDATE booking_settings SET business_name='카타르시스', representative_name='대표자', business_registration_number='123-45-67890', mail_order_registration_number='제2026-부산진-0001호', mail_order_registration_authority='부산진구청', business_email='owner@example.com', privacy_officer_name='대표자', booking_open=1 WHERE id=1").run();
+  const session = await createAdminSession("site");
+  const response = await updateSettings(new Request("https://backend.example/api/admin/settings", {
+    method: "PUT",
+    headers: {
+      origin: "https://backend.example",
+      "content-type": "application/json",
+      "x-catharsis-admin-request": "1",
+      cookie: `${ADMIN_SESSION_COOKIE}=${session}`,
+    },
+    body: JSON.stringify({ horizonDays: 14 }),
+  }));
+  assert.equal(response.status, 200);
+  const settings = database.prepare("SELECT horizon_days,business_name,representative_name,business_registration_number,mail_order_registration_number,mail_order_registration_authority,business_email,privacy_officer_name,booking_open FROM booking_settings WHERE id=1").get() as Record<string, unknown>;
+  assert.equal(settings.horizon_days, 14);
+  assert.equal(settings.business_name, "카타르시스");
+  assert.equal(settings.representative_name, "대표자");
+  assert.equal(settings.business_registration_number, "123-45-67890");
+  assert.equal(settings.mail_order_registration_number, "제2026-부산진-0001호");
+  assert.equal(settings.mail_order_registration_authority, "부산진구청");
+  assert.equal(settings.business_email, "owner@example.com");
+  assert.equal(settings.privacy_officer_name, "대표자");
+  assert.equal(settings.booking_open, 1);
+  database.close();
 });

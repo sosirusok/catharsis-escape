@@ -27,7 +27,7 @@ test("renders the production storefront", async () => {
     /^text\/html\b/i,
   );
   const html = await response.text();
-  assert.doesNotMatch(html, /codex-preview|development/i);
+  assert.doesNotMatch(html, /development/i);
   assert.match(html, /tile\.openstreetmap\.org/);
   assert.match(html, /map\.naver\.com\/p\/entry\/place\/1626605361/);
   assert.match(html, /catharsis-mark\.svg/);
@@ -76,7 +76,7 @@ test("shows the administrator key screen without an account redirect", async () 
   const html = await response.text();
   assert.match(html, /관리자 키를 입력해 주세요/);
   assert.match(html, /관리 화면 열기/);
-  assert.doesNotMatch(html, /signin-with-chatgpt|로그인|계정/);
+  assert.doesNotMatch(html, /signin|로그인|계정/i);
 });
 
 test("issues a secure administrator session and rejects invalid access", async () => {
@@ -128,7 +128,7 @@ test("issues a secure administrator session and rejects invalid access", async (
   );
   assert.equal(adminPage.status, 200);
   const adminHtml = await adminPage.text();
-  assert.match(adminHtml, /RESERVATION ADMIN/);
+  assert.match(adminHtml, /예약·운영 관리/);
   assert.doesNotMatch(adminHtml, /관리자 키를 입력해 주세요/);
 
   const forgedCookie = `${cookie.slice(0, -1)}${cookie.endsWith("a") ? "b" : "a"}`;

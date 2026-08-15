@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">카타르시스 예약 알림</string>
+    <string name="service_channel_name">예약 실시간 연결</string>
+    <string name="booking_channel_name">새 예약 알림</string>
+</resources>

@@ -1,7 +1,6 @@
 import {
   enforceRateLimit,
   getD1,
-  getSettings,
   json,
   isJsonRequest,
   normalizePhone,
@@ -21,6 +20,7 @@ type CancelRow = {
   phone_hash: string;
   start_at_utc: number;
   payment_status: string;
+  cancel_cutoff_minutes_snapshot: number;
 };
 
 export async function POST(request: Request) {
@@ -39,12 +39,12 @@ export async function POST(request: Request) {
     if (!/^CT-[2-9A-HJ-NP-Z]{6}$/.test(bookingCode) || !phone) return publicError("NOT_FOUND", "예약번호와 전화번호를 확인해 주세요.", 404);
     const db = getD1();
     const digest = await phoneHash(phone);
-    const row = await db.prepare("SELECT r.id, r.booking_code, r.status, r.phone_hash, r.payment_status, s.start_at_utc FROM reservations r JOIN booking_slots s ON s.id = r.slot_id WHERE r.booking_code = ? AND r.phone_hash = ? AND r.payment_status IN ('paid','manual','refunded','refund_processing') LIMIT 1").bind(bookingCode, digest).first<CancelRow>();
+    const row = await db.prepare("SELECT r.id, r.booking_code, r.status, r.phone_hash, r.payment_status, r.cancel_cutoff_minutes_snapshot, s.start_at_utc FROM reservations r JOIN booking_slots s ON s.id = r.slot_id WHERE r.booking_code = ? AND r.phone_hash = ? AND r.payment_status IN ('paid','manual','refunded','refund_processing') LIMIT 1").bind(bookingCode, digest).first<CancelRow>();
     if (!row) return publicError("NOT_FOUND", "예약번호와 전화번호를 확인해 주세요.", 404);
     if (row.status === "cancelled") return json({ ok: true, status: "cancelled" });
     if (row.status !== "confirmed") return publicError("NOT_CANCELLABLE", "온라인에서 취소할 수 없는 예약입니다. 매장으로 문의해 주세요.", 409);
-    const settings = await getSettings(db);
-    if (row.start_at_utc <= Date.now() + settings.cancelCutoffMinutes * 60_000) {
+    const cutoffMinutes = Math.max(0, Number(row.cancel_cutoff_minutes_snapshot ?? 1440));
+    if (row.start_at_utc <= Date.now() + cutoffMinutes * 60_000) {
       return publicError("CUTOFF_PASSED", "취소 가능 시간이 지났습니다. 매장으로 문의해 주세요.", 409);
     }
     if (["paid", "refund_processing"].includes(row.payment_status)) {

@@ -1,7 +1,10 @@
 import {
   createId,
+  encryptPrivate,
   getD1,
+  getSettings,
   json,
+  kstDateKey,
   runtimeEnv,
 } from "@/lib/booking";
 import {
@@ -12,8 +15,10 @@ import {
   TossApiError,
   type TossPayment,
 } from "@/lib/toss-payments";
+import type { BookingSettingsRecord } from "@/lib/models";
+import { legalRetentionUntil, merchantComplianceMissing, safeTossReceiptUrl } from "@/lib/store-policy";
 
-export const PAYMENT_HOLD_MS = 10 * 60_000;
+export const PAYMENT_HOLD_MS = 40 * 60_000;
 export const PAYMENT_RESULT_MS = 24 * 60 * 60_000;
 
 export type PaymentReservationRow = {
@@ -36,6 +41,8 @@ export type PaymentReservationRow = {
   payment_expires_at: number | null;
   payment_result_expires_at: number | null;
   paid_amount: number;
+  receipt_url: string;
+  payment_provider_checked_at: number;
   updated_at?: string;
 };
 
@@ -50,6 +57,7 @@ export function paymentSummary(row: PaymentReservationRow) {
     priceTotal: row.price_total,
     status: row.status,
     paymentStatus: row.payment_status,
+    receiptUrl: safeTossReceiptUrl(row.receipt_url),
   };
 }
 
@@ -87,14 +95,20 @@ export async function expirePaymentHolds(now = Date.now()) {
 
 async function rowByState(state: string) {
   return getD1().prepare(
-    "SELECT id, booking_code, request_id, request_fingerprint, slot_id, theme_name_snapshot, service_date, start_minute, duration_min, party_size, price_total, status, payment_status, payment_order_id, payment_state, payment_key, payment_expires_at, payment_result_expires_at, paid_amount FROM reservations WHERE payment_state = ? LIMIT 1",
+    "SELECT id, booking_code, request_id, request_fingerprint, slot_id, theme_name_snapshot, service_date, start_minute, duration_min, party_size, price_total, status, payment_status, payment_order_id, payment_state, payment_key, payment_expires_at, payment_result_expires_at, paid_amount, receipt_url, payment_provider_checked_at FROM reservations WHERE payment_state = ? LIMIT 1",
   ).bind(state).first<PaymentReservationRow>();
 }
 
 async function rowById(id: string) {
   return getD1().prepare(
-    "SELECT id, booking_code, request_id, request_fingerprint, slot_id, theme_name_snapshot, service_date, start_minute, duration_min, party_size, price_total, status, payment_status, payment_order_id, payment_state, payment_key, payment_expires_at, payment_result_expires_at, paid_amount FROM reservations WHERE id = ? LIMIT 1",
+    "SELECT id, booking_code, request_id, request_fingerprint, slot_id, theme_name_snapshot, service_date, start_minute, duration_min, party_size, price_total, status, payment_status, payment_order_id, payment_state, payment_key, payment_expires_at, payment_result_expires_at, paid_amount, receipt_url, payment_provider_checked_at FROM reservations WHERE id = ? LIMIT 1",
   ).bind(id).first<PaymentReservationRow>();
+}
+
+async function rowByOrderId(orderId: string) {
+  return getD1().prepare(
+    "SELECT id, booking_code, request_id, request_fingerprint, slot_id, theme_name_snapshot, service_date, start_minute, duration_min, party_size, price_total, status, payment_status, payment_order_id, payment_state, payment_key, payment_expires_at, payment_result_expires_at, paid_amount, receipt_url, payment_provider_checked_at FROM reservations WHERE payment_order_id = ? LIMIT 1",
+  ).bind(orderId).first<PaymentReservationRow>();
 }
 
 function validateTossResult(row: PaymentReservationRow, payment: TossPayment) {
@@ -108,17 +122,39 @@ function validateTossResult(row: PaymentReservationRow, payment: TossPayment) {
   }
 }
 
+function validateProviderIdentity(row: PaymentReservationRow, payment: TossPayment) {
+  if (
+    payment.orderId !== row.payment_order_id ||
+    Number(payment.totalAmount) !== row.price_total ||
+    (row.payment_key !== null && row.payment_key !== payment.paymentKey)
+  ) {
+    throw new Error("PAYMENT_VERIFICATION_FAILED");
+  }
+}
+
+function fullCancellation(payment: TossPayment, expectedAmount: number) {
+  const canceledTotal = (payment.cancels || []).reduce((sum, cancel) => sum + Number(cancel.cancelAmount || 0), 0);
+  return payment.status === "CANCELED" &&
+    (payment.balanceAmount === undefined || Number(payment.balanceAmount) === 0) &&
+    canceledTotal >= expectedAmount;
+}
+
 async function finalizePaid(row: PaymentReservationRow, payment: TossPayment) {
   validateTossResult(row, payment);
   const db = getD1();
-  const receiptUrl = payment.receipt?.url || "";
+  const receiptUrl = safeTossReceiptUrl(payment.receipt?.url);
+  const paidAt = payment.approvedAt && Number.isFinite(Date.parse(payment.approvedAt)) ? payment.approvedAt : new Date().toISOString();
+  const settings = await getSettings(db);
+  const retentionUntil = legalRetentionUntil(paidAt, settings.legalRecordRetentionMonths);
   await db.batch([
     db.prepare("INSERT INTO reservation_events (reservation_id, event_type, actor_type, actor_id, payload_json) SELECT id, 'payment_confirmed', 'payment', '', ? FROM reservations WHERE id = ? AND payment_status IN ('confirming','review_required')")
       .bind(JSON.stringify({ orderId: payment.orderId, amount: payment.totalAmount, method: payment.method || "카드" }), row.id),
     db.prepare("INSERT OR IGNORE INTO owner_alerts (reservation_id, type, booking_code, theme_name, service_date, start_minute, party_size, amount, status, payment_status, customer_name_enc, phone_enc) SELECT id, 'reservation.confirmed', booking_code, theme_name_snapshot, service_date, start_minute, party_size, price_total, 'confirmed', 'paid', customer_name_enc, phone_enc FROM reservations WHERE id = ? AND payment_status IN ('confirming','review_required')")
       .bind(row.id),
-    db.prepare("UPDATE reservations SET status = 'confirmed', payment_status = 'paid', payment_key = ?, payment_method = ?, paid_amount = ?, paid_at = ?, receipt_url = ?, payment_result_expires_at = ?, payment_failure_code = '', payment_failure_message = '', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND payment_status IN ('confirming','review_required')")
-      .bind(payment.paymentKey, payment.method || "카드", payment.totalAmount, payment.approvedAt || new Date().toISOString(), receiptUrl, Date.now() + PAYMENT_RESULT_MS, row.id),
+    db.prepare("INSERT OR IGNORE INTO legal_transaction_records (reservation_id, booking_code, customer_name_enc, phone_enc, payment_order_id, theme_name, service_date, start_minute, party_size, amount, paid_at, retention_until) SELECT id, booking_code, customer_name_enc, phone_enc, payment_order_id, theme_name_snapshot, service_date, start_minute, party_size, ?, ?, ? FROM reservations WHERE id = ? AND payment_status IN ('confirming','review_required')")
+      .bind(payment.totalAmount, paidAt, retentionUntil, row.id),
+    db.prepare("UPDATE reservations SET status = 'confirmed', payment_status = 'paid', payment_key = ?, payment_method = ?, paid_amount = ?, paid_at = ?, receipt_url = ?, payment_result_expires_at = ?, payment_provider_checked_at = ?, payment_failure_code = '', payment_failure_message = '', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND payment_status IN ('confirming','review_required')")
+      .bind(payment.paymentKey, payment.method || "카드", payment.totalAmount, paidAt, receiptUrl, Date.now() + PAYMENT_RESULT_MS, Date.now(), row.id),
   ]);
   const finalized = await rowById(row.id);
   if (!finalized || finalized.status !== "confirmed" || finalized.payment_status !== "paid" || finalized.paid_amount !== payment.totalAmount) {
@@ -130,7 +166,7 @@ async function finalizePaid(row: PaymentReservationRow, payment: TossPayment) {
 export async function reconcileStalePayments(now = Date.now(), limit = 3) {
   const db = getD1();
   const stale = await db.prepare(
-    "SELECT id, booking_code, request_id, request_fingerprint, slot_id, theme_name_snapshot, service_date, start_minute, duration_min, party_size, price_total, status, payment_status, payment_order_id, payment_state, payment_key, payment_expires_at, payment_result_expires_at, paid_amount, updated_at FROM reservations WHERE status = 'confirmed' AND payment_status IN ('confirming','review_required') AND payment_expires_at IS NOT NULL AND payment_expires_at <= ? AND ((payment_status = 'confirming' AND updated_at <= datetime('now', '-2 minutes')) OR (payment_status = 'review_required' AND updated_at <= datetime('now', '-30 minutes'))) ORDER BY payment_expires_at LIMIT ?",
+    "SELECT id, booking_code, request_id, request_fingerprint, slot_id, theme_name_snapshot, service_date, start_minute, duration_min, party_size, price_total, status, payment_status, payment_order_id, payment_state, payment_key, payment_expires_at, payment_result_expires_at, paid_amount, receipt_url, payment_provider_checked_at, updated_at FROM reservations WHERE status = 'confirmed' AND payment_status IN ('confirming','review_required') AND payment_expires_at IS NOT NULL AND payment_expires_at <= ? AND ((payment_status = 'confirming' AND updated_at <= datetime('now', '-2 minutes')) OR (payment_status = 'review_required' AND updated_at <= datetime('now', '-30 minutes'))) ORDER BY payment_expires_at LIMIT ?",
   ).bind(now, Math.max(1, Math.min(3, limit))).all<PaymentReservationRow>();
   await Promise.allSettled(stale.results.map(async (row) => {
     if (!row.payment_order_id || !row.payment_key) return;
@@ -189,6 +225,134 @@ async function recoverConfirming(row: PaymentReservationRow) {
   throw new Error("PAYMENT_PROCESSING");
 }
 
+async function ensureLegalTransactionRecord(row: PaymentReservationRow, payment: TossPayment) {
+  validateProviderIdentity(row, payment);
+  const db = getD1();
+  const settings = await getSettings(db);
+  const paidAt = payment.approvedAt && Number.isFinite(Date.parse(payment.approvedAt)) ? payment.approvedAt : new Date().toISOString();
+  const receiptUrl = safeTossReceiptUrl(payment.receipt?.url);
+  await db.batch([
+    db.prepare("INSERT OR IGNORE INTO legal_transaction_records (reservation_id, booking_code, customer_name_enc, phone_enc, payment_order_id, theme_name, service_date, start_minute, party_size, amount, paid_at, retention_until) SELECT id, booking_code, customer_name_enc, phone_enc, payment_order_id, theme_name_snapshot, service_date, start_minute, party_size, ?, ?, ? FROM reservations WHERE id = ?")
+      .bind(payment.totalAmount, paidAt, legalRetentionUntil(paidAt, settings.legalRecordRetentionMonths), row.id),
+    db.prepare("UPDATE reservations SET receipt_url = CASE WHEN ? <> '' THEN ? ELSE receipt_url END, payment_provider_checked_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+      .bind(receiptUrl, receiptUrl, Date.now(), row.id),
+  ]);
+}
+
+async function markPaymentReview(row: PaymentReservationRow, payment: TossPayment, code: string, source: string) {
+  validateProviderIdentity(row, payment);
+  const db = getD1();
+  const message = `토스 결제 상태 확인 필요 (${payment.status})`.slice(0, 240);
+  await db.batch([
+    db.prepare("INSERT INTO reservation_events (reservation_id, event_type, actor_type, actor_id, payload_json) SELECT id, 'payment_review_required', 'payment', ?, ? FROM reservations WHERE id = ? AND (payment_status <> 'review_required' OR payment_failure_code <> ?)")
+      .bind(source.slice(0, 80), JSON.stringify({ orderId: payment.orderId, providerStatus: payment.status, code }), row.id, code),
+    db.prepare("INSERT OR IGNORE INTO owner_alerts (reservation_id, type, booking_code, theme_name, service_date, start_minute, party_size, amount, status, payment_status, customer_name_enc, phone_enc) SELECT id, 'payment.review_required', booking_code, theme_name_snapshot, service_date, start_minute, party_size, price_total, status, 'review_required', customer_name_enc, phone_enc FROM reservations WHERE id = ?")
+      .bind(row.id),
+    db.prepare("UPDATE reservations SET payment_status = 'review_required', payment_key = COALESCE(payment_key, ?), payment_failure_code = ?, payment_failure_message = ?, payment_provider_checked_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+      .bind(payment.paymentKey, code.slice(0, 80), message, Date.now(), row.id),
+  ]);
+  const latest = await rowById(row.id);
+  if (!latest) throw new Error("RESERVATION_NOT_FOUND");
+  return latest;
+}
+
+async function applyAuthoritativePayment(row: PaymentReservationRow, payment: TossPayment, source: string) {
+  validateProviderIdentity(row, payment);
+  const db = getD1();
+
+  if (payment.status === "DONE") {
+    if (row.payment_status === "paid") {
+      if (row.paid_amount !== payment.totalAmount || row.status === "cancelled") {
+        return markPaymentReview(row, payment, "PAID_STATE_MISMATCH", source);
+      }
+      await ensureLegalTransactionRecord(row, payment);
+      const latest = await rowById(row.id);
+      if (!latest) throw new Error("RESERVATION_NOT_FOUND");
+      return latest;
+    }
+    if (row.status === "confirmed" && ["ready", "confirming", "review_required"].includes(row.payment_status)) {
+      await db.prepare("UPDATE reservations SET payment_status = 'confirming', payment_key = ?, payment_provider_checked_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'confirmed' AND payment_status IN ('ready','confirming','review_required') AND (payment_key IS NULL OR payment_key = ?)")
+        .bind(payment.paymentKey, Date.now(), row.id, payment.paymentKey).run();
+      const confirming = await rowById(row.id);
+      if (!confirming) throw new Error("RESERVATION_NOT_FOUND");
+      if (confirming.payment_status === "paid") return confirming;
+      if (confirming.payment_status !== "confirming") throw new Error("PAYMENT_STATE_CHANGED");
+      return finalizePaid(confirming, payment);
+    }
+    if (row.payment_status === "refund_processing") {
+      const refunded = await refundReservationPayment(row.id, "환불 상태 자동 재확인");
+      if (!refunded) throw new Error("PAYMENT_REFUND_UNAVAILABLE");
+      return refunded;
+    }
+    if (row.payment_status === "refunded") {
+      return markPaymentReview(row, payment, "REFUND_PROVIDER_MISMATCH", source);
+    }
+
+    await ensureLegalTransactionRecord(row, payment);
+    const claimed = await db.prepare("UPDATE reservations SET payment_status = 'refund_processing', payment_key = ?, payment_provider_checked_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND payment_status IN ('failed','expired','ready')")
+      .bind(payment.paymentKey, Date.now(), row.id).run();
+    if (!claimed.meta.changes) return markPaymentReview(row, payment, "ORPHAN_PAYMENT_REVIEW", source);
+    const orphan = await rowById(row.id);
+    if (!orphan) throw new Error("RESERVATION_NOT_FOUND");
+    const refunded = await refundReservationPayment(orphan.id, "예약 미확정 결제 자동 환불");
+    if (!refunded) throw new Error("PAYMENT_REFUND_UNAVAILABLE");
+    return refunded;
+  }
+
+  if (fullCancellation(payment, row.price_total)) {
+    if (row.payment_status === "refunded" && row.status === "cancelled") return row;
+    await ensureLegalTransactionRecord(row, payment);
+    await db.prepare("UPDATE reservations SET payment_status = 'refund_processing', payment_key = COALESCE(payment_key, ?), payment_provider_checked_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND payment_status <> 'refunded'")
+      .bind(payment.paymentKey, Date.now(), row.id).run();
+    const refunding = await rowById(row.id);
+    if (!refunding) throw new Error("RESERVATION_NOT_FOUND");
+    if (refunding.payment_status === "refunded") return refunding;
+    if (refunding.payment_status !== "refund_processing") throw new Error("PAYMENT_STATE_CHANGED");
+    return finalizeRefund(refunding, payment, source === "webhook" ? "토스 결제 취소 동기화" : "결제 취소 상태 동기화");
+  }
+
+  if (payment.status === "PARTIAL_CANCELED" || payment.status === "CANCELED") {
+    return markPaymentReview(row, payment, "PARTIAL_REFUND_REVIEW", source);
+  }
+  if (["ABORTED", "EXPIRED"].includes(payment.status) && row.payment_status !== "paid") {
+    await db.prepare("UPDATE reservations SET status = 'cancelled', payment_status = 'failed', payment_key = COALESCE(payment_key, ?), cancelled_at = COALESCE(cancelled_at, CURRENT_TIMESTAMP), cancel_reason = '결제 미완료', payment_failure_code = ?, payment_failure_message = ?, payment_provider_checked_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND payment_status NOT IN ('paid','refunded')")
+      .bind(payment.paymentKey, `PROVIDER_${payment.status}`.slice(0, 80), "결제가 완료되지 않았습니다.", Date.now(), row.id).run();
+    const latest = await rowById(row.id);
+    if (!latest) throw new Error("RESERVATION_NOT_FOUND");
+    return latest;
+  }
+  if (["READY", "IN_PROGRESS", "WAITING_FOR_DEPOSIT"].includes(payment.status) && ["ready", "confirming"].includes(row.payment_status)) {
+    await db.prepare("UPDATE reservations SET payment_provider_checked_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(Date.now(), row.id).run();
+    const latest = await rowById(row.id);
+    if (!latest) throw new Error("RESERVATION_NOT_FOUND");
+    return latest;
+  }
+  return markPaymentReview(row, payment, "PROVIDER_STATUS_REVIEW", source);
+}
+
+export async function syncTossPaymentByOrderId(orderId: string, source = "reconcile") {
+  const row = await rowByOrderId(orderId);
+  if (!row) return null;
+  const payment = await getTossPayment(orderId);
+  return applyAuthoritativePayment(row, payment, source);
+}
+
+export async function reconcileRecentProviderPayments(now = Date.now(), limit = 10) {
+  const db = getD1();
+  const paidBefore = now - 15 * 60_000;
+  const urgentBefore = now - 60_000;
+  const failedBefore = now - 60 * 60_000;
+  const recent = await db.prepare(
+    "SELECT id, payment_order_id, payment_provider_checked_at FROM reservations WHERE payment_order_id IS NOT NULL AND created_at >= datetime('now', '-180 days') AND ((payment_status = 'paid' AND payment_provider_checked_at <= ?) OR (payment_status IN ('confirming','review_required','refund_processing') AND payment_provider_checked_at <= ?) OR (payment_status IN ('failed','expired') AND created_at >= datetime('now', '-2 days') AND payment_provider_checked_at <= ?)) ORDER BY payment_provider_checked_at, created_at LIMIT ?",
+  ).bind(paidBefore, urgentBefore, failedBefore, Math.max(1, Math.min(25, limit))).all<{ id: string; payment_order_id: string; payment_provider_checked_at: number }>();
+  await Promise.allSettled(recent.results.map(async (candidate) => {
+    const claimed = await db.prepare("UPDATE reservations SET payment_provider_checked_at = ? WHERE id = ? AND payment_provider_checked_at = ?")
+      .bind(now, candidate.id, Number(candidate.payment_provider_checked_at || 0)).run();
+    if (!claimed.meta.changes) return;
+    await syncTossPaymentByOrderId(candidate.payment_order_id, "scheduled");
+  }));
+}
+
 export async function confirmReservationPayment(input: { state: string; orderId: string; paymentKey: string; amount: number }) {
   const row = await rowByState(input.state);
   if (!row || !row.payment_order_id || row.payment_order_id !== input.orderId || row.price_total !== input.amount) {
@@ -241,15 +405,10 @@ export async function getPaymentResult(state: string, orderId: string) {
 export async function reconcileReservationPayment(id: string) {
   const row = await rowById(id);
   if (!row) throw new Error("RESERVATION_NOT_FOUND");
-  if (row.payment_status === "paid") return row;
-  if (["confirming", "review_required"].includes(row.payment_status)) return recoverConfirming(row);
-  if (row.payment_status === "refund_processing") {
-    const refunded = await refundReservationPayment(id, "관리자 환불 상태 재확인");
-    if (!refunded) throw new Error("PAYMENT_REFUND_UNAVAILABLE");
-    return refunded;
-  }
-  if (["failed", "expired", "refunded"].includes(row.payment_status) || row.status === "cancelled") throw new Error("PAYMENT_NOT_COMPLETED");
-  throw new Error("PAYMENT_PROCESSING");
+  if (!row.payment_order_id) throw new Error("PAYMENT_NOT_COMPLETED");
+  const reconciled = await syncTossPaymentByOrderId(row.payment_order_id, "admin");
+  if (!reconciled) throw new Error("PAYMENT_NOT_COMPLETED");
+  return reconciled;
 }
 
 async function finalizeRefund(row: PaymentReservationRow, payment: TossPayment, reason: string) {
@@ -263,8 +422,10 @@ async function finalizeRefund(row: PaymentReservationRow, payment: TossPayment, 
       .bind(JSON.stringify({ orderId: row.payment_order_id, reason }), row.id),
     db.prepare("INSERT OR IGNORE INTO owner_alerts (reservation_id, type, booking_code, theme_name, service_date, start_minute, party_size, amount, status, payment_status, customer_name_enc, phone_enc) SELECT id, 'reservation.cancelled', booking_code, theme_name_snapshot, service_date, start_minute, party_size, price_total, 'cancelled', 'refunded', customer_name_enc, phone_enc FROM reservations WHERE id = ? AND payment_status = 'refund_processing'")
       .bind(row.id),
-    db.prepare("UPDATE reservations SET status = 'cancelled', payment_status = 'refunded', refunded_at = ?, cancelled_at = CURRENT_TIMESTAMP, cancel_reason = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND payment_status = 'refund_processing'")
-      .bind(refundedAt, reason, row.id),
+    db.prepare("UPDATE legal_transaction_records SET refunded_at = ?, updated_at = CURRENT_TIMESTAMP WHERE reservation_id = ?")
+      .bind(refundedAt, row.id),
+    db.prepare("UPDATE reservations SET status = 'cancelled', payment_status = 'refunded', refunded_at = ?, cancelled_at = CURRENT_TIMESTAMP, cancel_reason = ?, payment_provider_checked_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND payment_status = 'refund_processing'")
+      .bind(refundedAt, reason, Date.now(), row.id),
   ]);
   const finalized = await rowById(row.id);
   if (!finalized || finalized.status !== "cancelled" || finalized.payment_status !== "refunded") {
@@ -303,7 +464,13 @@ export async function refundReservationPayment(id: string, reason: string) {
           return await finalizeRefund(row, authoritative, reason);
         }
         if (authoritative.status === "DONE" && Number(authoritative.totalAmount) === row.price_total && Number(authoritative.balanceAmount ?? row.price_total) === row.price_total) {
-          await getD1().prepare("UPDATE reservations SET payment_status = 'paid', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND payment_status = 'refund_processing'").bind(id).run();
+          if (row.status === "cancelled") {
+            await getD1().prepare("UPDATE reservations SET payment_failure_code = 'AUTO_REFUND_RETRY', payment_failure_message = '미확정 결제 자동 환불 재시도 필요', payment_provider_checked_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND payment_status = 'refund_processing'")
+              .bind(Date.now(), id).run();
+          } else {
+            await getD1().prepare("UPDATE reservations SET payment_status = 'paid', payment_provider_checked_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND payment_status = 'refund_processing'")
+              .bind(Date.now(), id).run();
+          }
         }
       } catch {
         // Keep refund_processing locked until an authoritative retry can decide the outcome.
@@ -339,12 +506,51 @@ export async function releaseReviewedUnpaidReservation(id: string, actorId: stri
   return released;
 }
 
-export function paymentServiceStatus() {
+export async function cleanupRetainedData(now = Date.now(), limit = 25) {
+  const db = getD1();
+  const settings = await getSettings(db);
+  const operationalDays = Math.max(30, Math.min(365, settings.operationalPiiRetentionDays));
+  const serviceCutoff = kstDateKey(now - operationalDays * 86_400_000);
+  const cancelledCutoff = new Date(now - operationalDays * 86_400_000).toISOString().replace("T", " ").slice(0, 19);
+  const candidates = await db.prepare(
+    "SELECT id FROM reservations WHERE pii_purged_at IS NULL AND ((service_date < ?) OR (status = 'cancelled' AND cancelled_at IS NOT NULL AND cancelled_at < ?)) ORDER BY service_date, created_at LIMIT ?",
+  ).bind(serviceCutoff, cancelledCutoff, Math.max(1, Math.min(100, limit))).all<{ id: string }>();
+  const [purgedName, purgedPhone] = candidates.results.length
+    ? await Promise.all([encryptPrivate("보유기간 만료"), encryptPrivate("보유기간 만료")])
+    : ["", ""];
+
+  for (const candidate of candidates.results) {
+    await db.batch([
+      db.prepare("DELETE FROM owner_push_deliveries WHERE alert_id IN (SELECT id FROM owner_alerts WHERE reservation_id = ?)").bind(candidate.id),
+      db.prepare("DELETE FROM owner_alerts WHERE reservation_id = ?").bind(candidate.id),
+      db.prepare("UPDATE reservation_events SET actor_id = CASE WHEN actor_type = 'customer' THEN '' ELSE actor_id END, payload_json = '{}' WHERE reservation_id = ?").bind(candidate.id),
+      db.prepare("DELETE FROM admin_audit_logs WHERE entity_type IN ('reservation','reservation_payment') AND entity_id = ?").bind(candidate.id),
+      db.prepare("UPDATE reservations SET customer_name_enc = ?, phone_enc = ?, phone_hash = '', phone_last4 = '', request_fingerprint = '', admin_memo = '', pii_purged_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND pii_purged_at IS NULL")
+        .bind(purgedName, purgedPhone, candidate.id),
+    ]);
+  }
+
+  const webhookCutoff = new Date(now - 180 * 86_400_000).toISOString().replace("T", " ").slice(0, 19);
+  const deliveryCutoff = new Date(now - 30 * 86_400_000).toISOString().replace("T", " ").slice(0, 19);
+  await db.batch([
+    db.prepare("DELETE FROM legal_transaction_records WHERE retention_until <= ?").bind(now),
+    db.prepare("DELETE FROM rate_limits WHERE window_start < ?").bind(Math.floor(now / 1000) - 2 * 86_400),
+    db.prepare("DELETE FROM payment_webhook_events WHERE status IN ('processed','ignored') AND created_at < ?").bind(webhookCutoff),
+    db.prepare("DELETE FROM owner_push_deliveries WHERE status IN ('sent','dead') AND updated_at < ?").bind(deliveryCutoff),
+  ]);
+  return { operationalPiiPurged: candidates.results.length };
+}
+
+export function paymentServiceStatus(settings?: BookingSettingsRecord) {
   try {
     const config = tossConfig();
-    return { configured: true, mode: config.mode };
+    const publicTestEnabled = runtimeEnv().ALLOW_PUBLIC_TEST_PAYMENTS === "1";
+    const missing = settings ? merchantComplianceMissing(settings) : [];
+    const complianceReady = missing.length === 0;
+    const enabled = config.mode === "live" ? complianceReady : publicTestEnabled;
+    return { configured: enabled, mode: config.mode, complianceReady };
   } catch {
-    return { configured: false, mode: "unavailable" };
+    return { configured: false, mode: "unavailable", complianceReady: false };
   }
 }
 

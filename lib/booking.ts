@@ -13,6 +13,7 @@ export type RuntimeEnv = {
   BOOKING_LOOKUP_PEPPER?: string;
   TOSS_CLIENT_KEY?: string;
   TOSS_SECRET_KEY?: string;
+  ALLOW_PUBLIC_TEST_PAYMENTS?: string;
   PUBLIC_SITE_URL?: string;
   FIREBASE_PROJECT_ID?: string;
   FIREBASE_CLIENT_EMAIL?: string;
@@ -167,7 +168,7 @@ function fromBase64url(value: string): Uint8Array {
 
 async function deriveAesKey(): Promise<CryptoKey> {
   const secret = runtimeEnv().BOOKING_DATA_KEY;
-  if (!secret) throw new Error("BOOKING_CRYPTO_UNAVAILABLE");
+  if (!secret || new TextEncoder().encode(secret).byteLength < 32) throw new Error("BOOKING_CRYPTO_UNAVAILABLE");
   const material = new TextEncoder().encode(secret);
   const digest = await crypto.subtle.digest("SHA-256", material);
   return crypto.subtle.importKey("raw", digest, "AES-GCM", false, ["encrypt", "decrypt"]);
@@ -195,7 +196,7 @@ export async function sha256(value: string): Promise<string> {
 
 export async function phoneHash(phone: string): Promise<string> {
   const pepper = runtimeEnv().BOOKING_LOOKUP_PEPPER;
-  if (!pepper) throw new Error("BOOKING_CRYPTO_UNAVAILABLE");
+  if (!pepper || new TextEncoder().encode(pepper).byteLength < 32) throw new Error("BOOKING_CRYPTO_UNAVAILABLE");
   const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(pepper), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   const digest = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(phone));
   return base64url(new Uint8Array(digest));
@@ -203,7 +204,7 @@ export async function phoneHash(phone: string): Promise<string> {
 
 export async function requestFingerprint(value: unknown): Promise<string> {
   const pepper = runtimeEnv().BOOKING_LOOKUP_PEPPER;
-  if (!pepper) throw new Error("BOOKING_CRYPTO_UNAVAILABLE");
+  if (!pepper || new TextEncoder().encode(pepper).byteLength < 32) throw new Error("BOOKING_CRYPTO_UNAVAILABLE");
   const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(pepper), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   const digest = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(JSON.stringify(value)));
   return base64url(new Uint8Array(digest));
@@ -271,9 +272,22 @@ export async function getSettings(db = getD1()): Promise<BookingSettingsRecord> 
     leadMinutes: Number(row.lead_minutes),
     cancelCutoffMinutes: Number(row.cancel_cutoff_minutes),
     consentVersion: String(row.consent_version),
+    termsVersion: String(row.terms_version || "2026-08-15"),
+    refundPolicyVersion: String(row.refund_policy_version || "2026-08-15"),
     bookingOpen: Number(row.booking_open) === 1,
     pausedMessage: String(row.paused_message),
     storePhone: String(row.store_phone),
+    businessName: String(row.business_name || "카타르시스 이스케이프"),
+    representativeName: String(row.representative_name || ""),
+    businessRegistrationNumber: String(row.business_registration_number || ""),
+    mailOrderRegistrationNumber: String(row.mail_order_registration_number || ""),
+    mailOrderRegistrationAuthority: String(row.mail_order_registration_authority || ""),
+    mailOrderRegistrationExempt: Number(row.mail_order_registration_exempt || 0) === 1,
+    businessAddress: String(row.business_address || "부산 부산진구 중앙대로680번가길 29, 3층"),
+    businessEmail: String(row.business_email || ""),
+    privacyOfficerName: String(row.privacy_officer_name || ""),
+    operationalPiiRetentionDays: Math.max(30, Number(row.operational_pii_retention_days || 90)),
+    legalRecordRetentionMonths: Math.max(60, Number(row.legal_record_retention_months || 60)),
   };
 }
 

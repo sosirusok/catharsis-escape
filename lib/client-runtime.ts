@@ -10,7 +10,6 @@ const adminSite = typeof __CATHARSIS_ADMIN_SITE_URL__ === "string"
   ? __CATHARSIS_ADMIN_SITE_URL__
   : "/admin";
 
-const ADMIN_TOKEN_STORAGE_KEY = "catharsis-admin-session";
 let inMemoryAdminToken = "";
 
 declare const __CATHARSIS_API_ORIGIN__: string | undefined;
@@ -40,23 +39,17 @@ export function themeImageUrl(imageKey: string): string {
 
 export function readAdminSessionToken(): string {
   if (typeof window === "undefined" || !usesRemoteApi()) return "";
-  try {
-    return window.sessionStorage.getItem(ADMIN_TOKEN_STORAGE_KEY) || inMemoryAdminToken;
-  } catch {
-    return inMemoryAdminToken;
-  }
+  return inMemoryAdminToken;
 }
 
 export function saveAdminSessionToken(token: string): void {
   if (typeof window === "undefined" || !usesRemoteApi()) return;
   inMemoryAdminToken = token;
-  try { window.sessionStorage.setItem(ADMIN_TOKEN_STORAGE_KEY, token); } catch {}
 }
 
 export function clearAdminSessionToken(): void {
   if (typeof window === "undefined") return;
   inMemoryAdminToken = "";
-  try { window.sessionStorage.removeItem(ADMIN_TOKEN_STORAGE_KEY); } catch {}
 }
 
 export function adminRequestHeaders(initial?: HeadersInit): Headers {

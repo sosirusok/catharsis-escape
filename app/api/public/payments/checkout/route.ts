@@ -16,6 +16,7 @@ import {
   publicError,
   readJsonBody,
   requestFingerprint,
+  runtimeEnv,
   sameOrigin,
 } from "@/lib/booking";
 import {
@@ -26,6 +27,7 @@ import {
   type PaymentReservationRow,
 } from "@/lib/payment-flow";
 import { tossConfig } from "@/lib/toss-payments";
+import { merchantComplianceMissing } from "@/lib/store-policy";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +37,12 @@ type Payload = {
   name?: unknown;
   phone?: unknown;
   consentVersion?: unknown;
+  termsVersion?: unknown;
+  refundPolicyVersion?: unknown;
+  consentAccepted?: unknown;
+  termsAccepted?: unknown;
+  refundPolicyAccepted?: unknown;
+  paymentNoticeWaived?: unknown;
   requestId?: unknown;
 };
 
@@ -76,7 +84,10 @@ export async function POST(request: Request) {
   if (!sameOrigin(request)) return publicError("INVALID_ORIGIN", "요청을 확인할 수 없습니다.", 403);
   if (!isJsonRequest(request)) return publicError("INVALID_CONTENT_TYPE", "요청 형식을 확인해 주세요.", 415);
   try {
-    tossConfig();
+    const config = tossConfig();
+    if (config.mode === "test" && runtimeEnv().ALLOW_PUBLIC_TEST_PAYMENTS !== "1") {
+      return publicError("PAYMENT_UNAVAILABLE", "현재 온라인 카드결제를 이용할 수 없습니다.", 503);
+    }
     if (!(await enforceRateLimit(request, "checkout", 8, 600))) return publicError("RATE_LIMITED", "잠시 후 다시 시도해 주세요.", 429);
   } catch (error) {
     if (error instanceof Error && ["TOSS_PAYMENT_UNAVAILABLE", "TOSS_PAYMENT_KEY_MISMATCH"].includes(error.message)) {
@@ -95,9 +106,14 @@ export async function POST(request: Request) {
   const slotId = typeof payload.slotId === "string" ? payload.slotId.trim() : "";
   const requestId = typeof payload.requestId === "string" ? payload.requestId.trim() : "";
   const consentVersion = typeof payload.consentVersion === "string" ? payload.consentVersion : "";
+  const termsVersion = typeof payload.termsVersion === "string" ? payload.termsVersion : "";
+  const refundPolicyVersion = typeof payload.refundPolicyVersion === "string" ? payload.refundPolicyVersion : "";
   if (!name) return publicError("INVALID_NAME", "대표자 이름을 확인해 주세요.", 400);
   if (!phone) return publicError("INVALID_PHONE", "휴대전화 번호를 확인해 주세요.", 400);
   if (!Number.isInteger(partySize)) return publicError("INVALID_PARTY", "인원을 확인해 주세요.", 400);
+  if (payload.consentAccepted !== true || payload.termsAccepted !== true || payload.refundPolicyAccepted !== true || payload.paymentNoticeWaived !== true) {
+    return publicError("POLICY_AGREEMENT_REQUIRED", "필수 동의 항목을 확인해 주세요.", 400);
+  }
   const slotMatch = /^slot_([a-zA-Z0-9_-]{1,80})_(\d{8})_(\d{1,4})$/.exec(slotId);
   if (!slotMatch) return publicError("INVALID_SLOT", "예약 시간을 다시 선택해 주세요.", 400);
   if (!/^[a-f0-9-]{20,50}$/i.test(requestId)) return publicError("INVALID_REQUEST", "예약 정보를 다시 확인해 주세요.", 400);
@@ -106,10 +122,19 @@ export async function POST(request: Request) {
     const db = getD1();
     await expirePaymentHolds();
     const settings = await getSettings(db);
+    const config = tossConfig();
+    if (config.mode === "live" && merchantComplianceMissing(settings).length) {
+      return publicError("PAYMENT_UNAVAILABLE", "현재 온라인 카드결제를 이용할 수 없습니다.", 503);
+    }
     if (!settings.bookingOpen) return publicError("BOOKING_PAUSED", settings.pausedMessage, 409);
-    if (consentVersion !== settings.consentVersion) return publicError("CONSENT_UPDATED", "개인정보 수집 동의를 다시 확인해 주세요.", 409);
+    if (consentVersion !== settings.consentVersion || termsVersion !== settings.termsVersion || refundPolicyVersion !== settings.refundPolicyVersion) {
+      return publicError("POLICY_UPDATED", "예약 정책이 변경되었습니다. 내용을 다시 확인해 주세요.", 409);
+    }
 
-    const fingerprint = await requestFingerprint({ slotId, partySize, name, phone, consentVersion });
+    const fingerprint = await requestFingerprint({
+      slotId, partySize, name, phone, consentVersion, termsVersion, refundPolicyVersion,
+      consentAccepted: true, termsAccepted: true, refundPolicyAccepted: true, paymentNoticeWaived: true,
+    });
     const existing = await db.prepare("SELECT id, booking_code, request_id, request_fingerprint, slot_id, theme_name_snapshot, service_date, start_minute, duration_min, party_size, price_total, status, payment_status, payment_order_id, payment_state, payment_key, payment_expires_at, payment_result_expires_at, paid_amount FROM reservations WHERE request_id = ? LIMIT 1")
       .bind(requestId).first<PaymentReservationRow>();
     if (existing) {
@@ -155,16 +180,18 @@ export async function POST(request: Request) {
     const paymentOrderId = createPaymentOrderId();
     const paymentState = createPaymentState();
     const paymentExpiresAt = Date.now() + PAYMENT_HOLD_MS;
+    const policyAcceptedAt = new Date().toISOString();
     const [nameEnc, phoneEnc, phoneDigest] = await Promise.all([encryptPrivate(name), encryptPrivate(phone), phoneHash(phone)]);
 
     try {
       await db.batch([
         db.prepare("INSERT INTO booking_slots (id, theme_id, service_date, start_minute, start_at_utc, duration_min, source) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET theme_id = excluded.theme_id, service_date = excluded.service_date, start_minute = excluded.start_minute, start_at_utc = excluded.start_at_utc, duration_min = excluded.duration_min, source = excluded.source WHERE NOT EXISTS (SELECT 1 FROM reservations WHERE slot_id = booking_slots.id AND status IN ('confirmed','checked_in'))")
           .bind(slotId, themeId, serviceDate, startMinute, startAtUtc, durationMin, override ? "override" : "rule"),
-        db.prepare("INSERT INTO reservations (id, booking_code, request_id, request_fingerprint, slot_id, theme_id, status, party_size, customer_name_enc, phone_enc, phone_hash, phone_last4, theme_name_snapshot, service_date, start_minute, duration_min, price_total, consent_version, source, payment_status, payment_order_id, payment_state, payment_expires_at) SELECT ?, ?, ?, ?, ?, ?, 'confirmed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'web', 'ready', ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM closures WHERE start_date <= ? AND end_date >= ? AND (scope = 'store' OR theme_id = ?)) AND NOT EXISTS (SELECT 1 FROM slot_overrides WHERE theme_id = ? AND service_date = ? AND start_minute = ? AND action = 'block') AND (EXISTS (SELECT 1 FROM schedule_rules WHERE theme_id = ? AND weekday = ? AND start_minute = ?) OR EXISTS (SELECT 1 FROM slot_overrides WHERE theme_id = ? AND service_date = ? AND start_minute = ? AND action = 'add')) AND NOT EXISTS (SELECT 1 FROM reservations r JOIN booking_slots s ON s.id = r.slot_id WHERE r.theme_id = ? AND r.service_date = ? AND r.status IN ('confirmed','checked_in') AND s.start_minute < ? AND (s.start_minute + s.duration_min + ?) > ?)")
+        db.prepare("INSERT INTO reservations (id, booking_code, request_id, request_fingerprint, slot_id, theme_id, status, party_size, customer_name_enc, phone_enc, phone_hash, phone_last4, theme_name_snapshot, service_date, start_minute, duration_min, price_total, consent_version, terms_version, refund_policy_version, cancel_cutoff_minutes_snapshot, policy_accepted_at, payment_notice_waived, source, payment_status, payment_order_id, payment_state, payment_expires_at) SELECT ?, ?, ?, ?, ?, ?, 'confirmed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'web', 'ready', ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM closures WHERE start_date <= ? AND end_date >= ? AND (scope = 'store' OR theme_id = ?)) AND NOT EXISTS (SELECT 1 FROM slot_overrides WHERE theme_id = ? AND service_date = ? AND start_minute = ? AND action = 'block') AND (EXISTS (SELECT 1 FROM schedule_rules WHERE theme_id = ? AND weekday = ? AND start_minute = ?) OR EXISTS (SELECT 1 FROM slot_overrides WHERE theme_id = ? AND service_date = ? AND start_minute = ? AND action = 'add')) AND NOT EXISTS (SELECT 1 FROM reservations r JOIN booking_slots s ON s.id = r.slot_id WHERE r.theme_id = ? AND r.service_date = ? AND r.status IN ('confirmed','checked_in') AND s.start_minute < ? AND (s.start_minute + s.duration_min + ?) > ?)")
           .bind(
             id, bookingCode, requestId, fingerprint, slotId, themeId, partySize, nameEnc, phoneEnc, phoneDigest,
-            phone.slice(-4), theme.name, serviceDate, startMinute, durationMin, priceTotal, consentVersion,
+            phone.slice(-4), theme.name, serviceDate, startMinute, durationMin, priceTotal,
+            consentVersion, termsVersion, refundPolicyVersion, settings.cancelCutoffMinutes, policyAcceptedAt,
             paymentOrderId, paymentState, paymentExpiresAt,
             serviceDate, serviceDate, themeId,
             themeId, serviceDate, startMinute,
@@ -195,6 +222,7 @@ export async function POST(request: Request) {
       party_size: partySize, price_total: priceTotal, status: "confirmed", payment_status: "ready",
       payment_order_id: paymentOrderId, payment_state: paymentState, payment_key: null,
       payment_expires_at: paymentExpiresAt, payment_result_expires_at: null, paid_amount: 0,
+      receipt_url: "", payment_provider_checked_at: 0,
     };
     return Response.json(checkoutResponse(request, row, theme.name), { status: 201, headers: { "Cache-Control": "no-store" } });
   } catch (error) {

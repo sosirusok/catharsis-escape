@@ -1,8 +1,9 @@
 "use client";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { apiUrl, themeImageUrl } from "@/lib/client-runtime";
+import { apiUrl, publicSiteUrl, themeImageUrl } from "@/lib/client-runtime";
 import type { BookingSettingsRecord, PublicDateAvailability, ThemeRecord } from "@/lib/models";
+import ThemePosterArt from "@/app/_components/ThemePosterArt";
 
 type ReservationSummary = {
   bookingCode: string;
@@ -14,6 +15,7 @@ type ReservationSummary = {
   priceTotal: number;
   status: string;
   paymentStatus?: string;
+  receiptUrl?: string;
 };
 
 type PaymentCheckout = {
@@ -36,8 +38,38 @@ type TossPaymentsFactory = ((clientKey: string) => { payment(options: { customer
 
 let tossScriptPromise: Promise<TossPaymentsFactory> | null = null;
 const PENDING_PAYMENT_KEY = "catharsis.pendingPayment";
+const RECENT_RESERVATION_KEY = "catharsis.recentReservation";
 
 type PendingPayment = { state: string; orderId: string; expiresAt: number };
+type RecentReservation = ReservationSummary & { savedAt: number };
+
+function policyUrl(path: "privacy" | "terms" | "refund") {
+  const configured = publicSiteUrl();
+  const base = configured.replace(/\/+$/, "");
+  return `${base || ""}/${path}/`;
+}
+
+function saveRecentReservation(reservation: ReservationSummary) {
+  try {
+    localStorage.setItem(RECENT_RESERVATION_KEY, JSON.stringify({ ...reservation, savedAt: Date.now() }));
+  } catch {}
+}
+
+function readRecentReservation(): RecentReservation | null {
+  try {
+    const raw = localStorage.getItem(RECENT_RESERVATION_KEY);
+    if (!raw) return null;
+    const value = JSON.parse(raw) as Partial<RecentReservation>;
+    if (!value.bookingCode || !/^CT-[2-9A-HJ-NP-Z]{6}$/.test(value.bookingCode) || typeof value.savedAt !== "number") return null;
+    if (value.savedAt < Date.now() - 180 * 24 * 60 * 60_000) {
+      localStorage.removeItem(RECENT_RESERVATION_KEY);
+      return null;
+    }
+    return value as RecentReservation;
+  } catch {
+    return null;
+  }
+}
 
 function clearPendingPayment(expectedState?: string) {
   for (const storage of [sessionStorage, localStorage]) {
@@ -123,6 +155,23 @@ function minuteToTime(minute: number) {
   return `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
 }
 
+function cancelCutoffText(minutes: number) {
+  if (minutes <= 0) return "이용 시작 전";
+  if (minutes % 1440 === 0) return `이용 시작 ${minutes / 1440}일 전`;
+  if (minutes % 60 === 0) return `이용 시작 ${minutes / 60}시간 전`;
+  return `이용 시작 ${minutes}분 전`;
+}
+
+function safeReceiptUrl(value?: string) {
+  if (!value) return "";
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && (url.hostname === "tosspayments.com" || url.hostname.endsWith(".tosspayments.com")) ? url.toString() : "";
+  } catch {
+    return "";
+  }
+}
+
 function newRequestId() {
   const bytes = new Uint8Array(16);
   globalThis.crypto.getRandomValues(bytes);
@@ -143,14 +192,16 @@ export default function BookingExperience({ initialThemes, initialSettings }: Pr
   const [people, setPeople] = useState(initialThemes[0]?.minPeople || 2);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
-  const [agreed, setAgreed] = useState(false);
+  const [privacyAgreed, setPrivacyAgreed] = useState(false);
+  const [termsAndRefundAgreed, setTermsAndRefundAgreed] = useState(false);
+  const [paymentNoticeWaived, setPaymentNoticeWaived] = useState(false);
   const [reviewing, setReviewing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [completed, setCompleted] = useState<ReservationSummary | null>(null);
   const [error, setError] = useState("");
   const [paymentError, setPaymentError] = useState("");
   const [manageOpen, setManageOpen] = useState(false);
-  const [privacyOpen, setPrivacyOpen] = useState(false);
+  const [informationOpen, setInformationOpen] = useState<"privacy" | "payment-notice" | null>(null);
   const [paymentMode, setPaymentMode] = useState<"test" | "live" | "unavailable">("unavailable");
   const requestIdRef = useRef(newRequestId());
   const availabilityRequestRef = useRef(0);
@@ -158,7 +209,7 @@ export default function BookingExperience({ initialThemes, initialSettings }: Pr
   const selectedTheme = themes.find((theme) => theme.id === themeId) || themes[0];
   const selectedDate = dates.find((date) => date.date === dateKey);
   const selectedSlot = selectedDate?.slots.find((slot) => slot.id === slotId);
-  const ready = Boolean(paymentMode !== "unavailable" && selectedTheme && selectedDate && selectedSlot?.status === "available" && name.trim().length >= 2 && phone.replace(/\D/g, "").length >= 10 && agreed);
+  const ready = Boolean(paymentMode !== "unavailable" && selectedTheme && selectedDate && selectedSlot?.status === "available" && name.trim().length >= 2 && phone.replace(/\D/g, "").length >= 10 && privacyAgreed && termsAndRefundAgreed && paymentNoticeWaived);
 
   useEffect(() => {
     fetch(apiUrl("/api/public/bootstrap"), { cache: "no-store" })
@@ -167,7 +218,7 @@ export default function BookingExperience({ initialThemes, initialSettings }: Pr
         if (!data.ok) return;
         setThemes(data.themes);
         setSettings(data.settings);
-        setPaymentMode(data.payments?.mode === "live" ? "live" : data.payments?.configured ? "test" : "unavailable");
+        setPaymentMode(data.payments?.configured ? (data.payments.mode === "live" ? "live" : "test") : "unavailable");
         setThemeId((current) => data.themes.some((theme: ThemeRecord) => theme.id === current) ? current : data.themes[0]?.id || "");
       })
       .catch(() => {});
@@ -262,6 +313,7 @@ export default function BookingExperience({ initialThemes, initialSettings }: Pr
           if (response.ok && data.ok) {
             if (!cancelled) {
               clearPendingPayment(state);
+              saveRecentReservation(data.reservation);
               setCompleted(data.reservation);
               requestIdRef.current = newRequestId();
               setSlotId("");
@@ -287,11 +339,11 @@ export default function BookingExperience({ initialThemes, initialSettings }: Pr
   }, []);
 
   useEffect(() => {
-    if (!reviewing && !completed && !manageOpen && !privacyOpen) return;
+    if (!reviewing && !completed && !manageOpen && !informationOpen) return;
     const previousOverflow = document.body.style.overflow;
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || submitting) return;
-      if (privacyOpen) setPrivacyOpen(false);
+      if (informationOpen) setInformationOpen(null);
       else if (manageOpen) setManageOpen(false);
       else if (reviewing) setReviewing(false);
       else setCompleted(null);
@@ -302,7 +354,7 @@ export default function BookingExperience({ initialThemes, initialSettings }: Pr
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", closeOnEscape);
     };
-  }, [completed, manageOpen, privacyOpen, reviewing, submitting]);
+  }, [completed, informationOpen, manageOpen, reviewing, submitting]);
 
   const submitReview = (event: FormEvent) => {
     event.preventDefault();
@@ -323,7 +375,13 @@ export default function BookingExperience({ initialThemes, initialSettings }: Pr
           partySize: people,
           name,
           phone,
+          consentAccepted: true,
+          termsAccepted: true,
+          refundPolicyAccepted: true,
+          paymentNoticeWaived: true,
           consentVersion: settings.consentVersion,
+          termsVersion: settings.termsVersion,
+          refundPolicyVersion: settings.refundPolicyVersion,
           requestId: requestIdRef.current,
         }),
       });
@@ -379,7 +437,7 @@ export default function BookingExperience({ initialThemes, initialSettings }: Pr
             <div className="booking-theme-grid">
               {themes.map((theme) => (
                 <button type="button" key={theme.id} className={themeId === theme.id ? "booking-theme selected" : "booking-theme"} onClick={() => selectTheme(theme.id)} aria-pressed={themeId === theme.id}>
-                  <span className={`booking-thumb ${theme.artKey}`} style={theme.imageKey ? { backgroundImage: `url(${themeImageUrl(theme.imageKey)})` } : undefined} />
+                  <span className={`booking-thumb ${theme.artKey} ${theme.imageKey ? "has-image" : ""}`} style={theme.imageKey ? { backgroundImage: `url(${themeImageUrl(theme.imageKey)})` } : undefined}>{!theme.imageKey && <ThemePosterArt artKey={theme.artKey} title={theme.shortName} compact />}</span>
                   <span><small>{theme.genre}</small><strong>{theme.shortName}</strong><em>{theme.durationMin}분 · {theme.minPeople}–{theme.maxPeople}인</em></span>
                   <i aria-hidden="true" />
                 </button>
@@ -425,13 +483,24 @@ export default function BookingExperience({ initialThemes, initialSettings }: Pr
               <div className="field"><label htmlFor="guest-name">대표자 이름</label><input id="guest-name" value={name} onChange={(event) => setName(event.target.value.slice(0, 30))} placeholder="이름" autoComplete="name" required /></div>
               <div className="field"><label htmlFor="guest-phone">대표자 전화번호</label><input id="guest-phone" type="tel" inputMode="numeric" value={phone} onChange={(event) => setPhone(formatPhone(event.target.value))} placeholder="010-0000-0000" autoComplete="tel" required /></div>
             </div>
-            <div className="consent-row">
-              <label className="consent"><input type="checkbox" checked={agreed} onChange={(event) => setAgreed(event.target.checked)} /><span aria-hidden="true" /><b>(필수)</b> 개인정보 수집·이용에 동의합니다.</label>
-              <button className="privacy-open" type="button" onClick={() => setPrivacyOpen(true)}>내용 보기</button>
+            <div className="consent-stack">
+              <div className="consent-row">
+                <label className="consent"><input type="checkbox" checked={privacyAgreed} onChange={(event) => setPrivacyAgreed(event.target.checked)} /><span aria-hidden="true" /><b>(필수)</b> 예약을 위한 개인정보 처리에 동의합니다.</label>
+                <button className="privacy-open" type="button" onClick={() => setInformationOpen("privacy")}>내용 보기</button>
+              </div>
+              <div className="consent-row">
+                <label className="consent"><input type="checkbox" checked={termsAndRefundAgreed} onChange={(event) => setTermsAndRefundAgreed(event.target.checked)} /><span aria-hidden="true" /><b>(필수)</b> 이용약관 및 취소·환불정책에 동의합니다.</label>
+                <span className="consent-links"><a href={policyUrl("terms")} target="_blank" rel="noreferrer">이용약관</a><a href={policyUrl("refund")} target="_blank" rel="noreferrer">환불정책</a></span>
+              </div>
+              <div className="consent-row">
+                <label className="consent"><input type="checkbox" checked={paymentNoticeWaived} onChange={(event) => setPaymentNoticeWaived(event.target.checked)} /><span aria-hidden="true" /><b>(필수)</b> 별도 문자·이메일 안내를 받지 않고 결제완료 화면과 예약조회에서 확인하는 데 동의합니다.</label>
+                <button className="privacy-open" type="button" onClick={() => setInformationOpen("payment-notice")}>내용 보기</button>
+              </div>
             </div>
           </fieldset>
 
           {(paymentError || error) && <div className="booking-error" role="alert">{paymentError || error}</div>}
+          {paymentMode === "unavailable" && <div className="booking-payment-unavailable"><strong>온라인 카드결제를 잠시 이용할 수 없습니다.</strong><span>{settings.storePhone ? `예약 문의 ${settings.storePhone}` : "잠시 후 다시 확인해 주세요."}</span></div>}
           <div className="booking-summary">
             <div><span>예약 내용</span><strong>{selectedTheme?.name || "테마 선택"}</strong><p>{selectedDate ? formatDate(selectedDate.date) : "날짜 미선택"} {selectedSlot?.time || "시간 미선택"} · {people}명</p></div>
             <button type="submit" disabled={!ready}>예약 내용 확인 <Arrow /></button>
@@ -443,64 +512,81 @@ export default function BookingExperience({ initialThemes, initialSettings }: Pr
         <div className="modal-backdrop" role="presentation" onMouseDown={() => !submitting && setReviewing(false)}>
           <section className="review-modal" role="dialog" aria-modal="true" aria-labelledby="review-title" onMouseDown={(event) => event.stopPropagation()}>
             <button className="modal-close" onClick={() => setReviewing(false)} disabled={submitting} aria-label="닫기">×</button>
-            <p className="modal-kicker">FINAL CHECK</p><h2 id="review-title">예약 내용을 확인해 주세요.</h2>
+            <h2 id="review-title">예약 내용을 확인해 주세요.</h2>
             <dl><div><dt>테마</dt><dd>{selectedTheme.name}</dd></div><div><dt>일시</dt><dd>{formatDate(selectedDate.date, true)} {selectedSlot.time}</dd></div><div><dt>인원</dt><dd>{people}명</dd></div><div><dt>대표자</dt><dd>{name}</dd></div><div><dt>연락처</dt><dd>{phone}</dd></div>{selectedTheme.prices[String(people)] && <div><dt>이용 요금</dt><dd>{selectedTheme.prices[String(people)].toLocaleString("ko-KR")}원</dd></div>}</dl>
-            <p className="booking-next">카드결제가 승인되면 예약번호가 생성되고 예약이 확정됩니다.</p>
-            {paymentMode === "test" && <div className="payment-test-notice"><strong>결제 연동 점검 모드</strong><span>현재 결제창에서는 실제 금액이 청구되지 않습니다.</span></div>}
-            <div className="modal-actions"><button className="button primary" onClick={confirmReservation} disabled={submitting}>{submitting ? "결제창 여는 중…" : "카드결제 후 예약 확정"} <Arrow /></button><button className="button quiet" onClick={() => setReviewing(false)} disabled={submitting}>다시 선택</button></div>
+            <div className="refund-summary"><strong>취소·환불 안내</strong><p>{cancelCutoffText(settings.cancelCutoffMinutes)}까지 취소하면 전액 환불됩니다. 이후 취소는 매장으로 문의해 주세요.</p><a href={policyUrl("refund")} target="_blank" rel="noreferrer">전체 정책 보기</a></div>
+            <p className="booking-next">카드결제가 승인되고 예약번호가 발급되면 예약이 확정됩니다.</p>
+            <div className="modal-actions"><button className="button primary" onClick={confirmReservation} disabled={submitting}>{submitting ? "결제창 여는 중…" : `${Number(selectedTheme.prices[String(people)] || 0).toLocaleString("ko-KR")}원 결제하기`} <Arrow /></button><button className="button quiet" onClick={() => setReviewing(false)} disabled={submitting}>다시 선택</button></div>
           </section>
         </div>
       )}
 
-      {completed && <SuccessModal reservation={completed} onClose={() => setCompleted(null)} />}
+      {completed && <SuccessModal reservation={completed} onClose={() => setCompleted(null)} onManage={() => { setCompleted(null); setManageOpen(true); }} />}
       {manageOpen && <ManageReservation onClose={() => setManageOpen(false)} />}
-      {privacyOpen && <PrivacyModal onClose={() => setPrivacyOpen(false)} />}
+      {informationOpen && <InformationModal kind={informationOpen} settings={settings} onClose={() => setInformationOpen(null)} />}
     </>
   );
 }
 
-function PrivacyModal({ onClose }: { onClose: () => void }) {
+function InformationModal({ kind, settings, onClose }: { kind: "privacy" | "payment-notice"; settings: BookingSettingsRecord; onClose: () => void }) {
+  const operationalDays = Math.max(30, Number(settings.operationalPiiRetentionDays || 90));
+  const legalMonths = Math.max(60, Number(settings.legalRecordRetentionMonths || 60));
+  const privacy = kind === "privacy";
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
-      <section className="review-modal privacy-modal" role="dialog" aria-modal="true" aria-labelledby="privacy-title" onMouseDown={(event) => event.stopPropagation()}>
+      <section className="review-modal privacy-modal" role="dialog" aria-modal="true" aria-labelledby="information-title" onMouseDown={(event) => event.stopPropagation()}>
         <button className="modal-close" type="button" onClick={onClose} aria-label="닫기">×</button>
-        <p className="modal-kicker">PRIVACY</p>
-        <h2 id="privacy-title">개인정보 수집·이용 안내</h2>
-        <dl className="privacy-list">
-          <div><dt>수집 목적</dt><dd>예약·결제 처리, 예약자 확인, 이용 안내, 예약 변경·취소 및 환불 처리</dd></div>
-          <div><dt>수집 항목</dt><dd>대표자 이름, 전화번호, 예약 테마, 날짜, 시간, 이용 인원</dd></div>
-          <div><dt>보유 기간</dt><dd>예약 운영 및 관계 법령상 의무 이행에 필요한 기간 동안 보관한 뒤 안전하게 파기합니다.</dd></div>
-        </dl>
-        <p className="privacy-note">동의를 거부할 수 있으나, 필수 정보 수집에 동의하지 않으면 예약 접수가 제한됩니다.</p>
+        <h2 id="information-title">{privacy ? "개인정보 처리 안내" : "결제결과 확인 방법"}</h2>
+        {privacy ? <><dl className="privacy-list"><div><dt>처리 목적</dt><dd>예약 접수·본인 확인·카드결제·예약 확정·취소·환불 및 분쟁 처리</dd></div><div><dt>처리 항목</dt><dd>이름, 휴대전화번호, 테마, 이용일시, 인원, 예약번호와 주문·결제·환불 정보</dd></div><div><dt>보유 기간</dt><dd>운영용 예약정보는 이용일 또는 취소 후 {operationalDays}일, 계약·결제 기록은 {legalMonths}개월, 불만·분쟁 기록은 3년 보관 후 파기</dd></div></dl><p className="privacy-note">동의를 거부할 수 있으나, 예약계약 이행에 필요한 정보이므로 동의하지 않으면 온라인 예약을 진행할 수 없습니다.</p><a className="policy-detail-link" href={policyUrl("privacy")} target="_blank" rel="noreferrer">개인정보 처리방침 전체 보기</a></> : <><ul className="information-list"><li>결제 후 문자메시지나 이메일은 별도로 발송되지 않습니다.</li><li>결제완료 화면과 예약조회에서 예약번호, 예약내역, 결제금액과 카드 매출전표를 확인할 수 있습니다.</li><li>이 동의는 취소·환불 및 거래내역 확인 권리를 제한하지 않습니다.</li></ul><p className="privacy-note">동의하지 않는 경우 {settings.storePhone ? `${settings.storePhone}로 ` : "매장으로 "}다른 예약 방법을 문의해 주세요.</p></>}
         <button className="button primary privacy-confirm" type="button" onClick={onClose}>확인</button>
       </section>
     </div>
   );
 }
 
-function SuccessModal({ reservation, onClose }: { reservation: ReservationSummary; onClose: () => void }) {
+function SuccessModal({ reservation, onClose, onManage }: { reservation: ReservationSummary; onClose: () => void; onManage: () => void }) {
   const [copied, setCopied] = useState(false);
   const copyCode = async () => {
     try { await navigator.clipboard.writeText(reservation.bookingCode); setCopied(true); }
     catch { setCopied(false); }
   };
-  return <div className="modal-backdrop"><section className="review-modal success-modal" role="dialog" aria-modal="true" aria-labelledby="success-title"><div className="success-seal">✓</div><p className="modal-kicker">PAYMENT COMPLETE</p><h2 id="success-title">결제와 예약이 완료되었습니다.</h2><div className="booking-code"><span>예약번호</span><strong>{reservation.bookingCode}</strong><button type="button" onClick={copyCode}>{copied ? "복사됨" : "복사"}</button></div><dl><div><dt>테마</dt><dd>{reservation.themeName}</dd></div><div><dt>일시</dt><dd>{formatDate(reservation.date, true)} {minuteToTime(reservation.startMinute)}</dd></div><div><dt>인원</dt><dd>{reservation.partySize}명</dd></div>{reservation.priceTotal > 0 && <div><dt>결제 금액</dt><dd>{reservation.priceTotal.toLocaleString("ko-KR")}원</dd></div>}</dl><p className="booking-next">예약 조회와 취소에 예약번호가 필요합니다. 화면을 저장해 주세요.</p><button className="button primary success-close" onClick={onClose}>확인</button></section></div>;
+  const receiptUrl = safeReceiptUrl(reservation.receiptUrl);
+  return <div className="modal-backdrop"><section className="review-modal success-modal printable-reservation" role="dialog" aria-modal="true" aria-labelledby="success-title"><div className="success-seal">✓</div><h2 id="success-title">예약이 확정되었습니다.</h2><p className="success-lead">결제가 정상적으로 완료되었습니다. 현장 확인을 위해 예약번호를 보관해 주세요.</p><div className="booking-code"><span>예약번호</span><strong>{reservation.bookingCode}</strong><button type="button" onClick={copyCode}>{copied ? "복사됨" : "복사"}</button></div><dl><div><dt>테마</dt><dd>{reservation.themeName}</dd></div><div><dt>일시</dt><dd>{formatDate(reservation.date, true)} {minuteToTime(reservation.startMinute)}</dd></div><div><dt>인원</dt><dd>{reservation.partySize}명</dd></div>{reservation.priceTotal > 0 && <div><dt>결제 금액</dt><dd>{reservation.priceTotal.toLocaleString("ko-KR")}원</dd></div>}</dl><div className="success-tools"><button type="button" onClick={() => window.print()}>예약 내역 인쇄</button>{receiptUrl && <a href={receiptUrl} target="_blank" rel="noreferrer">카드 매출전표</a>}</div><p className="booking-next">변경·취소는 예약조회에서 신청할 수 있습니다. 이 기기에는 최근 예약번호가 함께 보관됩니다.</p><div className="success-actions"><button className="button quiet" onClick={onManage}>예약 내역 보기</button><button className="button primary" onClick={onClose}>확인</button></div></section></div>;
 }
 
 function ManageReservation({ onClose }: { onClose: () => void }) {
   const [bookingCode, setBookingCode] = useState("");
   const [phone, setPhone] = useState("");
   const [reservation, setReservation] = useState<ReservationSummary | null>(null);
+  const [recent, setRecent] = useState<RecentReservation | null>(() => readRecentReservation());
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const lookup = async (event: FormEvent) => {
     event.preventDefault(); setLoading(true); setError("");
-    try { const response = await fetch(apiUrl("/api/public/reservations/lookup"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bookingCode, phone }) }); const data = await response.json(); if (!response.ok) throw new Error(data.error?.message); setReservation(data.reservation); } catch (caught) { setError(caught instanceof Error ? caught.message : "예약을 찾지 못했습니다."); } finally { setLoading(false); }
+    try { const response = await fetch(apiUrl("/api/public/reservations/lookup"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bookingCode, phone }) }); const data = await response.json(); if (!response.ok) throw new Error(data.error?.message); saveRecentReservation(data.reservation); setRecent({ ...data.reservation, savedAt: Date.now() }); setReservation(data.reservation); } catch (caught) { setError(caught instanceof Error ? caught.message : "예약을 찾지 못했습니다."); } finally { setLoading(false); }
   };
   const cancel = async () => {
-    if (!confirm("예약을 취소하고 결제금액을 카드 환불하시겠습니까?")) return;
+    const paid = reservation?.paymentStatus === "paid";
+    if (!confirm(paid ? "예약을 취소하고 결제 금액을 카드 환불하시겠습니까?" : "예약을 취소하시겠습니까?")) return;
     setLoading(true); setError("");
-    try { const response = await fetch(apiUrl("/api/public/reservations/cancel"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bookingCode, phone }) }); const data = await response.json(); if (!response.ok) throw new Error(data.error?.message); setReservation((current) => current ? { ...current, status: "cancelled" } : null); } catch (caught) { setError(caught instanceof Error ? caught.message : "취소하지 못했습니다."); } finally { setLoading(false); }
+    try { const response = await fetch(apiUrl("/api/public/reservations/cancel"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bookingCode, phone }) }); const data = await response.json(); if (!response.ok) throw new Error(data.error?.message); setReservation((current) => { if (!current) return null; const next = { ...current, status: "cancelled", paymentStatus: data.refunded ? "refunded" : current.paymentStatus }; saveRecentReservation(next); setRecent({ ...next, savedAt: Date.now() }); return next; }); } catch (caught) { setError(caught instanceof Error ? caught.message : "취소하지 못했습니다."); } finally { setLoading(false); }
   };
-  return <div className="modal-backdrop" onMouseDown={onClose}><section className="review-modal manage-modal" role="dialog" aria-modal="true" aria-labelledby="manage-title" onMouseDown={(event) => event.stopPropagation()}><button className="modal-close" onClick={onClose} aria-label="닫기">×</button><p className="modal-kicker">MY RESERVATION</p><h2 id="manage-title">예약 조회·취소</h2>{!reservation ? <form className="lookup-form" onSubmit={lookup}><label>예약번호<input value={bookingCode} onChange={(event) => setBookingCode(event.target.value.toUpperCase().slice(0, 9))} placeholder="CT-XXXXXX" /></label><label>예약자 전화번호<input type="tel" inputMode="numeric" value={phone} onChange={(event) => setPhone(formatPhone(event.target.value))} placeholder="010-0000-0000" /></label>{error && <div className="booking-error">{error}</div>}<button className="button primary" disabled={loading}>{loading ? "조회 중…" : "예약 조회"}</button></form> : <><div className={`reservation-state ${reservation.status}`}>{reservation.status === "cancelled" ? "취소·환불 완료" : "결제·예약 완료"}</div><div className="booking-code"><span>예약번호</span><strong>{reservation.bookingCode}</strong></div><dl><div><dt>테마</dt><dd>{reservation.themeName}</dd></div><div><dt>일시</dt><dd>{formatDate(reservation.date, true)} {minuteToTime(reservation.startMinute)}</dd></div><div><dt>인원</dt><dd>{reservation.partySize}명</dd></div></dl>{error && <div className="booking-error">{error}</div>}<div className="modal-actions">{reservation.status === "confirmed" && <button className="button danger" onClick={cancel} disabled={loading}>{loading ? "환불 처리 중…" : "예약 취소·카드 환불"}</button>}<button className="button quiet" onClick={() => setReservation(null)}>다른 예약 조회</button></div></>}</section></div>;
+  const paymentStatus = reservation?.paymentStatus || "manual";
+  const paid = paymentStatus === "paid";
+  const refunding = paymentStatus === "refund_processing";
+  const refunded = paymentStatus === "refunded";
+  const cancelled = reservation?.status === "cancelled";
+  const statusText = refunded
+    ? "취소·환불 완료"
+    : refunding
+      ? "취소·환불 처리 중"
+      : cancelled && paid
+        ? "예약 취소 · 결제 취소 확인 필요"
+        : cancelled
+          ? "예약 취소 완료"
+          : paid
+            ? "결제·예약 완료"
+            : "예약 확정";
+  const receiptUrl = safeReceiptUrl(reservation?.receiptUrl);
+  return <div className="modal-backdrop" onMouseDown={onClose}><section className="review-modal manage-modal" role="dialog" aria-modal="true" aria-labelledby="manage-title" onMouseDown={(event) => event.stopPropagation()}><button className="modal-close" onClick={onClose} aria-label="닫기">×</button><h2 id="manage-title">예약 조회·취소</h2>{!reservation ? <form className="lookup-form" onSubmit={lookup}>{recent && <button className="recent-reservation" type="button" onClick={() => { setBookingCode(recent.bookingCode); setError(""); }}><span>이 기기의 최근 예약</span><strong>{recent.bookingCode}</strong><small>{recent.themeName} · {formatDate(recent.date)} {minuteToTime(recent.startMinute)}</small></button>}<label>예약번호<input value={bookingCode} onChange={(event) => setBookingCode(event.target.value.toUpperCase().slice(0, 9))} placeholder="CT-XXXXXX" autoComplete="off" /></label><label>예약자 휴대전화번호<input type="tel" inputMode="numeric" value={phone} onChange={(event) => setPhone(formatPhone(event.target.value))} placeholder="010-0000-0000" autoComplete="tel" /></label>{error && <div className="booking-error">{error}</div>}<button className="button primary" disabled={loading}>{loading ? "조회 중…" : "예약 조회"}</button></form> : <><div className={`reservation-state ${cancelled ? "cancelled" : paymentStatus}`}>{statusText}</div><div className="booking-code"><span>예약번호</span><strong>{reservation.bookingCode}</strong></div><dl><div><dt>테마</dt><dd>{reservation.themeName}</dd></div><div><dt>일시</dt><dd>{formatDate(reservation.date, true)} {minuteToTime(reservation.startMinute)}</dd></div><div><dt>인원</dt><dd>{reservation.partySize}명</dd></div>{reservation.priceTotal > 0 && <div><dt>결제 금액</dt><dd>{reservation.priceTotal.toLocaleString("ko-KR")}원</dd></div>}</dl>{receiptUrl && <a className="receipt-link" href={receiptUrl} target="_blank" rel="noreferrer">카드 매출전표 보기</a>}{error && <div className="booking-error">{error}</div>}<div className="modal-actions">{reservation.status === "confirmed" && !refunding && !refunded && <button className="button danger" onClick={cancel} disabled={loading}>{loading ? (paid ? "환불 처리 중…" : "취소 처리 중…") : paid ? "예약 취소·카드 환불" : "예약 취소"}</button>}<button className="button quiet" onClick={() => { setReservation(null); setError(""); }}>다른 예약 조회</button></div></>}</section></div>;
 }

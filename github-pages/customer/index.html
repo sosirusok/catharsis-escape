@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="description" content="부산 서면 카타르시스 이스케이프. 테마, 이용 요금, 실시간 예약, 오시는 길을 확인하세요." />
     <meta name="theme-color" content="#100f0e" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://catharsis-escape.sosirusok.chatgpt.site https://tosspayments.com https://*.tosspayments.com; img-src 'self' data: https://tile.openstreetmap.org https://catharsis-escape.sosirusok.chatgpt.site; style-src 'self' 'unsafe-inline'; script-src 'self' https://js.tosspayments.com; frame-src https://tosspayments.com https://*.tosspayments.com; font-src 'self' data:; base-uri 'none'; object-src 'none'; form-action 'self' https://tosspayments.com https://*.tosspayments.com" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' %VITE_CATHARSIS_API_ORIGIN% https://tosspayments.com https://*.tosspayments.com; img-src 'self' data: %VITE_CATHARSIS_API_ORIGIN% https://tile.openstreetmap.org; style-src 'self' 'unsafe-inline'; script-src 'self' https://js.tosspayments.com; frame-src https://tosspayments.com https://*.tosspayments.com; font-src 'self' data:; base-uri 'none'; object-src 'none'; form-action 'self' https://tosspayments.com https://*.tosspayments.com" />
     <link rel="icon" href="%BASE_URL%catharsis-mark.svg" />
     <title>카타르시스 이스케이프 | 부산 서면 방탈출</title>
   </head>

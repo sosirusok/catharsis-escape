@@ -1,0 +1,14 @@
+/.gradle/
+/.idea/
+/local.properties
+/**/build/
+/dist/
+*.iml
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pk8
+*.key
+*.pem
+*.der

@@ -25,6 +25,8 @@ jobs:
       - run: npm run lint
       - run: npm test
       - name: Build GitHub Pages site
+        env:
+          PUBLIC_API_ORIGIN: ${{ vars.PUBLIC_API_ORIGIN }}
         shell: bash
         run: |
           case "${GITHUB_REPOSITORY##*/}" in

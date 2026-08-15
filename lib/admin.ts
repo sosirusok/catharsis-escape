@@ -63,7 +63,7 @@ function cookieValue(cookieHeader: string | null, name: string): string | null {
 
 export async function adminAccessKeyMatches(candidate: string): Promise<boolean> {
   const expected = runtimeEnv().ADMIN_ACCESS_KEY;
-  if (!expected) throw new Error("ADMIN_ACCESS_KEY_UNAVAILABLE");
+  if (!expected || expected.length < 20) throw new Error("ADMIN_ACCESS_KEY_UNAVAILABLE");
   const [candidateDigest, expectedDigest] = await Promise.all([
     sha256Bytes(candidate),
     sha256Bytes(expected),

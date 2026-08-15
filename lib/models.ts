@@ -25,15 +25,32 @@ export type BookingSettingsRecord = {
   leadMinutes: number;
   cancelCutoffMinutes: number;
   consentVersion: string;
+  termsVersion: string;
+  refundPolicyVersion: string;
   bookingOpen: boolean;
   pausedMessage: string;
   storePhone: string;
+  businessName: string;
+  representativeName: string;
+  businessRegistrationNumber: string;
+  mailOrderRegistrationNumber: string;
+  mailOrderRegistrationAuthority: string;
+  mailOrderRegistrationExempt: boolean;
+  businessAddress: string;
+  businessEmail: string;
+  privacyOfficerName: string;
+  operationalPiiRetentionDays: number;
+  legalRecordRetentionMonths: number;
 };
 
 export const DEFAULT_SETTINGS: BookingSettingsRecord = {
   timezone: "Asia/Seoul", horizonDays: 21, leadMinutes: 60, cancelCutoffMinutes: 1440,
-  consentVersion: "2026-08-13", bookingOpen: true,
-  pausedMessage: "현재 예약 접수가 잠시 중단되었습니다.", storePhone: "051-802-3341",
+  consentVersion: "2026-08-15", termsVersion: "2026-08-15", refundPolicyVersion: "2026-08-15",
+  bookingOpen: true, pausedMessage: "현재 예약 접수가 잠시 중단되었습니다.", storePhone: "051-802-3341",
+  businessName: "카타르시스 이스케이프", representativeName: "", businessRegistrationNumber: "",
+  mailOrderRegistrationNumber: "", mailOrderRegistrationAuthority: "", mailOrderRegistrationExempt: false,
+  businessAddress: "부산 부산진구 중앙대로680번가길 29, 3층", businessEmail: "", privacyOfficerName: "",
+  operationalPiiRetentionDays: 90, legalRecordRetentionMonths: 60,
 };
 
 export const DEFAULT_THEMES: ThemeRecord[] = [

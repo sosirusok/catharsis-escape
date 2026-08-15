@@ -110,7 +110,7 @@ export async function POST(request: Request) {
     await audit(db, auth.admin.email, "create", "theme", value.id, null, value);
     return json({ ok: true, id: value.id }, 201);
   } catch {
-    return json({ ok: false, error: { code: "SAVE_FAILED", message: "테마를 등록하지 못했습니다. 이름과 주소를 확인해 주세요." } }, 409);
+    return json({ ok: false, error: { code: "SAVE_FAILED", message: "테마를 등록하지 못했습니다. 테마명과 필수 정보를 확인해 주세요." } }, 409);
   }
 }
 

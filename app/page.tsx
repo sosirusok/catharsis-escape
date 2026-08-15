@@ -1,10 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import BookingExperience from "@/app/_components/BookingExperience";
 import DynamicRates from "@/app/_components/DynamicRates";
 import DynamicThemes from "@/app/_components/DynamicThemes";
+import StoreFooter from "@/app/_components/StoreFooter";
+import { apiUrl } from "@/lib/client-runtime";
 import { DEFAULT_SETTINGS, DEFAULT_THEMES } from "@/lib/models";
+
+const INITIAL_PUBLIC_SETTINGS = { ...DEFAULT_SETTINGS, storePhone: "" };
 
 function Arrow() {
   return (
@@ -72,7 +76,6 @@ function StoreMap() {
         }}
       >
         {tiles.map((tile) => (
-          // Raw map tiles are already optimized raster assets served at a fixed size.
           // eslint-disable-next-line @next/next/no-img-element
           <img
             key={tile.key}
@@ -140,6 +143,48 @@ function StoreMap() {
   );
 }
 
+function StoreFacts() {
+  const [phone, setPhone] = useState("");
+  useEffect(() => {
+    fetch(apiUrl("/api/public/bootstrap"), { cache: "no-store" })
+      .then((response) => response.json())
+      .then((data) => { if (data.ok) setPhone(String(data.settings?.storePhone || "")); })
+      .catch(() => {});
+  }, []);
+  return (
+    <div className={`hero-facts ${phone ? "" : "without-phone"}`} aria-label="매장 정보">
+      <div><span>운영시간</span><strong>예약 시간표에서 확인</strong></div>
+      <div><span>오시는 길</span><strong>서면역 2번 출구 378m</strong></div>
+      {phone && <a href={`tel:${phone.replace(/\D/g, "")}`}><span>예약 문의</span><strong>{phone}</strong></a>}
+    </div>
+  );
+}
+
+function StoreLocationDetails() {
+  const [phone, setPhone] = useState("");
+  useEffect(() => {
+    fetch(apiUrl("/api/public/bootstrap"), { cache: "no-store" })
+      .then((response) => response.json())
+      .then((data) => { if (data.ok) setPhone(String(data.settings?.storePhone || "")); })
+      .catch(() => {});
+  }, []);
+  return (
+    <>
+      <dl>
+        <div><dt>주소</dt><dd>부산 부산진구 중앙대로680번가길 29, 3층</dd></div>
+        <div><dt>교통</dt><dd>부산 1·2호선 서면역 2번 출구 도보 378m</dd></div>
+        <div><dt>운영시간</dt><dd>예약 시간표에서 날짜별 운영시간 확인</dd></div>
+        {phone && <div><dt>문의</dt><dd><a href={`tel:${phone.replace(/\D/g, "")}`}>{phone}</a></dd></div>}
+        <div><dt>주차</dt><dd>전용 주차장 및 주차비 지원 없음</dd></div>
+      </dl>
+      <div className="location-actions">
+        <a className="button primary" href="https://map.naver.com/p/entry/place/1626605361" target="_blank" rel="noreferrer">네이버 지도 <Arrow /></a>
+        {phone && <a className="phone-link" href={`tel:${phone.replace(/\D/g, "")}`}><Phone /> 전화 문의</a>}
+      </div>
+    </>
+  );
+}
+
 export default function Home() {
   const goBooking = (id?: string) => {
     if (id) window.dispatchEvent(new CustomEvent("select-booking-theme", { detail: id }));
@@ -177,11 +222,7 @@ export default function Home() {
             <br />
             <em>단 한 편.</em>
           </h1>
-          <p className="hero-copy">
-            각기 다른 이야기 중 오늘의 테마를 선택하세요.
-            <br />{" "}
-            문이 닫히는 순간, 당신이 이야기의 주인공이 됩니다.
-          </p>
+          <p className="hero-copy">문이 닫히는 순간, 이야기가 시작됩니다.</p>
           <div className="hero-actions">
             <button className="button primary" onClick={() => goBooking()}>
               예약하기 <Arrow />
@@ -191,30 +232,15 @@ export default function Home() {
             </a>
           </div>
         </div>
-        <div
-          className="hero-visual"
-          role="img"
-          aria-label="미스터리한 분위기의 방탈출 공간"
-        />
-        <div className="hero-facts" aria-label="매장 정보">
-          <div>
-            <span>운영시간</span>
-            <strong>매일 10:30–24:00</strong>
-          </div>
-          <div>
-            <span>오시는 길</span>
-            <strong>서면역 2번 출구 378m</strong>
-          </div>
-          <a href="tel:0518023341">
-            <span>예약 문의</span>
-            <strong>051-802-3341</strong>
-          </a>
+        <div className="hero-visual" role="img" aria-label="카타르시스 이스케이프 포스터 아트">
+          <div className="hero-poster-frame" aria-hidden="true"><span>C</span><i /><b>60</b></div>
         </div>
+        <StoreFacts />
       </section>
 
       <DynamicThemes initialThemes={DEFAULT_THEMES} />
 
-      <BookingExperience initialThemes={DEFAULT_THEMES} initialSettings={DEFAULT_SETTINGS} />
+      <BookingExperience initialThemes={DEFAULT_THEMES} initialSettings={INITIAL_PUBLIC_SETTINGS} />
 
       <section className="guide-section" id="guide">
         <div className="shell">
@@ -292,43 +318,7 @@ export default function Home() {
         <StoreMap />
         <div className="location-info">
           <h2>오시는 길</h2>
-          <dl>
-            <div>
-              <dt>주소</dt>
-              <dd>부산 부산진구 중앙대로680번가길 29, 3층</dd>
-            </div>
-            <div>
-              <dt>교통</dt>
-              <dd>부산 1·2호선 서면역 2번 출구 도보 378m</dd>
-            </div>
-            <div>
-              <dt>운영시간</dt>
-              <dd>매일 10:30–24:00</dd>
-            </div>
-            <div>
-              <dt>문의</dt>
-              <dd>
-                <a href="tel:0518023341">051-802-3341</a>
-              </dd>
-            </div>
-            <div>
-              <dt>주차</dt>
-              <dd>전용 주차장 및 주차비 지원 없음</dd>
-            </div>
-          </dl>
-          <div className="location-actions">
-            <a
-              className="button primary"
-              href="https://map.naver.com/p/entry/place/1626605361"
-              target="_blank"
-              rel="noreferrer"
-            >
-              네이버 지도 <Arrow />
-            </a>
-            <a className="phone-link" href="tel:0518023341">
-              <Phone /> 전화 문의
-            </a>
-          </div>
+          <StoreLocationDetails />
         </div>
       </section>
 
@@ -343,7 +333,7 @@ export default function Home() {
             </summary>
             <p>
               네. 입장 전 자물쇠와 힌트 사용법을 안내해 드립니다. 처음이라면
-              난이도와 취향을 확인해 테마를 골라주세요.
+              난이도와 취향을 확인해 테마를 골라 주세요.
             </p>
           </details>
           <details>
@@ -383,28 +373,7 @@ export default function Home() {
         </div>
       </section>
 
-      <footer>
-        <div className="footer-main">
-          <div className="footer-brand">
-            <span className="brand-mark" aria-hidden="true">
-              <i>C</i>
-            </span>
-            <div>
-              <strong>카타르시스 이스케이프</strong>
-              <p>부산 부산진구 중앙대로680번가길 29, 3층</p>
-            </div>
-          </div>
-          <div className="footer-links">
-            <a href="#themes">테마</a>
-            <a href="#booking">예약</a>
-            <button type="button" onClick={() => window.dispatchEvent(new Event("open-booking-manager"))}>예약 조회·취소</button>
-            <a href="tel:0518023341">051-802-3341</a>
-          </div>
-        </div>
-        <div className="footer-bottom">
-          © 2026 카타르시스 이스케이프
-        </div>
-      </footer>
+      <StoreFooter initialSettings={INITIAL_PUBLIC_SETTINGS} />
 
       <button className="mobile-book" onClick={() => goBooking()}>
         예약하기 <Arrow />

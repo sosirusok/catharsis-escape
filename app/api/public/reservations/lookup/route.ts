@@ -9,6 +9,7 @@ import {
   readJsonBody,
   sameOrigin,
 } from "@/lib/booking";
+import { safeTossReceiptUrl } from "@/lib/store-policy";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +22,8 @@ type LookupRow = {
   duration_min: number;
   party_size: number;
   price_total: number;
+  payment_status: string;
+  receipt_url: string;
   created_at: string;
 };
 
@@ -39,7 +42,7 @@ export async function POST(request: Request) {
     const phone = normalizePhone(payload.phone);
     if (!/^CT-[2-9A-HJ-NP-Z]{6}$/.test(bookingCode) || !phone) return publicError("NOT_FOUND", "예약번호와 전화번호를 확인해 주세요.", 404);
     const digest = await phoneHash(phone);
-    const row = await getD1().prepare("SELECT booking_code, status, theme_name_snapshot, service_date, start_minute, duration_min, party_size, price_total, created_at FROM reservations WHERE booking_code = ? AND phone_hash = ? AND payment_status IN ('paid','manual','refund_processing','refunded') LIMIT 1").bind(bookingCode, digest).first<LookupRow>();
+    const row = await getD1().prepare("SELECT booking_code, status, theme_name_snapshot, service_date, start_minute, duration_min, party_size, price_total, payment_status, receipt_url, created_at FROM reservations WHERE booking_code = ? AND phone_hash = ? AND payment_status IN ('paid','manual','refund_processing','refunded') LIMIT 1").bind(bookingCode, digest).first<LookupRow>();
     if (!row) return publicError("NOT_FOUND", "예약번호와 전화번호를 확인해 주세요.", 404);
     return json({ ok: true, reservation: {
       bookingCode: row.booking_code,
@@ -50,6 +53,8 @@ export async function POST(request: Request) {
       durationMin: row.duration_min,
       partySize: row.party_size,
       priceTotal: row.price_total,
+      paymentStatus: row.payment_status,
+      receiptUrl: safeTossReceiptUrl(row.receipt_url),
       createdAt: row.created_at,
     } });
   } catch {

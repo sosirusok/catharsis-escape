@@ -1,8 +1,9 @@
 package kr.co.catharsis.owner.ui
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -31,7 +33,6 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.MoreVert
-import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -64,19 +65,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kr.co.catharsis.owner.MainViewModel
 import kr.co.catharsis.owner.data.BookingAlert
@@ -85,6 +87,8 @@ import kr.co.catharsis.owner.data.formatCreatedAt
 import kr.co.catharsis.owner.data.paymentStatusLabel
 import kr.co.catharsis.owner.data.toWon
 import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 @Composable
 fun OwnerApp(
@@ -128,19 +132,19 @@ private fun PairingScreen(
         BrandMark()
         Spacer(Modifier.height(30.dp))
         Text(
-            text = "CATHARSIS",
+            text = "카타르시스 이스케이프",
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.secondary,
         )
         Spacer(Modifier.height(8.dp))
         Text(
-            text = "예약 운영",
+            text = "예약 알림 연결",
             style = MaterialTheme.typography.displaySmall,
             color = MaterialTheme.colorScheme.onBackground,
         )
         Spacer(Modifier.height(12.dp))
         Text(
-            text = "매장 전용 장치를 연결합니다.",
+            text = "매장 전용 기기를 연결합니다.",
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -164,7 +168,7 @@ private fun PairingScreen(
                 KeyboardActions(
                     onNext = { focusManager.moveFocus(FocusDirection.Down) },
                 ),
-            shape = RoundedCornerShape(18.dp),
+            shape = RoundedCornerShape(6.dp),
         )
         Spacer(Modifier.height(14.dp))
         OutlinedTextField(
@@ -172,7 +176,7 @@ private fun PairingScreen(
             onValueChange = { deviceName = it },
             modifier = Modifier.fillMaxWidth(),
             enabled = !isBusy,
-            label = { Text("장치 이름") },
+            label = { Text("기기 이름") },
             singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
             keyboardActions =
@@ -184,7 +188,7 @@ private fun PairingScreen(
                         }
                     },
                 ),
-            shape = RoundedCornerShape(18.dp),
+            shape = RoundedCornerShape(6.dp),
         )
 
         AnimatedVisibility(pairingError != null) {
@@ -206,7 +210,7 @@ private fun PairingScreen(
                 Modifier
                     .fillMaxWidth()
                     .height(56.dp),
-            shape = RoundedCornerShape(18.dp),
+            shape = RoundedCornerShape(6.dp),
         ) {
             if (isBusy) {
                 CircularProgressIndicator(
@@ -223,18 +227,22 @@ private fun PairingScreen(
 
 @Composable
 private fun BrandMark() {
-    val primary = MaterialTheme.colorScheme.primary
-    val secondary = MaterialTheme.colorScheme.secondary
-    Canvas(modifier = Modifier.size(66.dp)) {
-        drawCircle(color = secondary, style = Stroke(width = 3.dp.toPx()))
-        drawArc(
-            color = primary,
-            startAngle = -55f,
-            sweepAngle = 245f,
-            useCenter = false,
-            style = Stroke(width = 7.dp.toPx(), cap = StrokeCap.Round),
+    Box(
+        modifier =
+            Modifier
+                .size(52.dp)
+                .rotate(45f)
+                .border(1.dp, MaterialTheme.colorScheme.secondary),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = "C",
+            modifier = Modifier.rotate(-45f),
+            color = MaterialTheme.colorScheme.secondary,
+            fontFamily = FontFamily.Serif,
+            fontWeight = FontWeight.Normal,
+            fontSize = 28.sp,
         )
-        drawCircle(color = primary, radius = 7.dp.toPx())
     }
 }
 
@@ -348,10 +356,10 @@ private fun ReservationsScreen(viewModel: MainViewModel) {
 private fun ConnectionLabel(connection: ConnectionState) {
     val (label, color) =
         when (connection) {
-            is ConnectionState.Connected -> "연결됨" to Color(0xFF3C8B62)
+            is ConnectionState.Connected -> "연결됨" to Color(0xFF78A98A)
             ConnectionState.Syncing -> "확인 중" to MaterialTheme.colorScheme.secondary
-            is ConnectionState.Error -> "연결 재시도 중" to MaterialTheme.colorScheme.error
-            ConnectionState.Idle -> "연결됨" to Color(0xFF3C8B62)
+            is ConnectionState.Error -> "연결 오류" to MaterialTheme.colorScheme.error
+            ConnectionState.Idle -> "대기 중" to MaterialTheme.colorScheme.secondary
             ConnectionState.PairingRequired -> "연결 필요" to MaterialTheme.colorScheme.error
         }
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -413,8 +421,9 @@ private fun SummaryPanel(
     unreadCount: Int,
 ) {
     Card(
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+        shape = RoundedCornerShape(6.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.55f)),
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
@@ -428,7 +437,7 @@ private fun SummaryPanel(
             Box(
                 Modifier
                     .size(width = 1.dp, height = 48.dp)
-                    .background(MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.18f)),
+                    .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.55f)),
             )
             SummaryValue(label = "읽지 않음", value = "${unreadCount}건")
         }
@@ -444,13 +453,13 @@ private fun SummaryValue(
         Text(
             value,
             style = MaterialTheme.typography.headlineMedium,
-            color = MaterialTheme.colorScheme.onPrimaryContainer,
+            color = MaterialTheme.colorScheme.onSurface,
         )
         Spacer(Modifier.height(2.dp))
         Text(
             label,
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f),
+            color = MaterialTheme.colorScheme.secondary,
         )
     }
 }
@@ -465,39 +474,33 @@ private fun AlertCard(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .shadow(2.dp, RoundedCornerShape(20.dp), ambientColor = Color.Black.copy(alpha = 0.08f))
                 .clickable(onClick = onClick),
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(6.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)),
     ) {
         Row(modifier = Modifier.padding(18.dp), verticalAlignment = Alignment.Top) {
             Box(
                 modifier =
                     Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
+                        .width(3.dp)
+                        .height(70.dp)
                         .background(
                             if (alert.isRead) {
-                                MaterialTheme.colorScheme.surfaceVariant
+                                MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)
                             } else {
-                                MaterialTheme.colorScheme.primaryContainer
+                                MaterialTheme.colorScheme.primary
                             },
                         ),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    Icons.Rounded.Notifications,
-                    contentDescription = null,
-                    tint =
-                        if (alert.isRead) {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        } else {
-                            MaterialTheme.colorScheme.primary
-                        },
-                )
-            }
+            )
             Spacer(Modifier.size(14.dp))
             Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    alertTypeLabel(alert.type),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.secondary,
+                )
+                Spacer(Modifier.height(4.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         reservation.themeName,
@@ -518,7 +521,7 @@ private fun AlertCard(
                 }
                 Spacer(Modifier.height(5.dp))
                 Text(
-                    "${reservation.serviceDate}  ${reservation.time} · ${reservation.partySize}명",
+                    "${formatServiceDate(reservation.serviceDate)}  ${reservation.time} · ${reservation.partySize}명",
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
@@ -554,24 +557,10 @@ private fun EmptyReservations(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Box(
-            modifier =
-                Modifier
-                    .size(74.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primaryContainer),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (isLoading) {
-                CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 2.5.dp)
-            } else {
-                Icon(
-                    Icons.Rounded.Notifications,
-                    contentDescription = null,
-                    modifier = Modifier.size(30.dp),
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-            }
+        if (isLoading) {
+            CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 2.5.dp)
+        } else {
+            BrandMark()
         }
         Spacer(Modifier.height(20.dp))
         Text(
@@ -634,7 +623,7 @@ private fun ReservationDetails(
 
             Surface(
                 color = MaterialTheme.colorScheme.primaryContainer,
-                shape = RoundedCornerShape(18.dp),
+                shape = RoundedCornerShape(6.dp),
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Row(
@@ -662,7 +651,7 @@ private fun ReservationDetails(
                 }
             }
             Spacer(Modifier.height(22.dp))
-            DetailRow("이용 일시", "${reservation.serviceDate}  ${reservation.time}")
+            DetailRow("이용 일시", "${formatServiceDate(reservation.serviceDate)}  ${reservation.time}")
             DetailRow("예약 인원", "${reservation.partySize}명")
             DetailRow("예약자", reservation.name)
             DetailRow("휴대전화", reservation.phone)
@@ -675,7 +664,7 @@ private fun ReservationDetails(
                     Modifier
                         .fillMaxWidth()
                         .height(52.dp),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(6.dp),
                 colors =
                     ButtonDefaults.filledTonalButtonColors(
                         containerColor = MaterialTheme.colorScheme.surfaceVariant,
@@ -686,6 +675,19 @@ private fun ReservationDetails(
         }
     }
 }
+
+private fun alertTypeLabel(type: String): String =
+    when {
+        type.contains("CANCEL", ignoreCase = true) -> "예약 취소"
+        type.contains("REFUND", ignoreCase = true) -> "환불 완료"
+        else -> "새 예약"
+    }
+
+private fun formatServiceDate(value: String): String =
+    runCatching {
+        LocalDate.parse(value)
+            .format(DateTimeFormatter.ofPattern("M월 d일 (E)", Locale.KOREAN))
+    }.getOrDefault(value)
 
 @Composable
 private fun DetailRow(

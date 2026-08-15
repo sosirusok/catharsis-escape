@@ -267,7 +267,6 @@ test("overlapping manual reservations close public slots and a concurrent closur
       consentAccepted: true,
       termsAccepted: true,
       refundPolicyAccepted: true,
-      paymentNoticeWaived: true,
       requestId: "27fa0db9-a390-4dce-a441-30f69a6f723d",
     }),
   }));
@@ -383,7 +382,6 @@ test("checkout requires affirmative policy attestations and snapshots the accept
     consentAccepted: true,
     termsAccepted: true,
     refundPolicyAccepted: true,
-    paymentNoticeWaived: true,
   }, "127.0.0.22"));
   assert.equal(accepted.status, 201);
   const snapshot = database.prepare("SELECT consent_version, terms_version, refund_policy_version, cancel_cutoff_minutes_snapshot, payment_notice_waived, policy_accepted_at FROM reservations WHERE request_id = '27fa0db9-a390-4dce-a441-30f69a6f7002'").get() as Record<string, unknown>;
@@ -391,7 +389,7 @@ test("checkout requires affirmative policy attestations and snapshots the accept
   assert.equal(snapshot.terms_version, "2026-08-15");
   assert.equal(snapshot.refund_policy_version, "2026-08-15");
   assert.equal(snapshot.cancel_cutoff_minutes_snapshot, 1440);
-  assert.equal(snapshot.payment_notice_waived, 1);
+  assert.equal(snapshot.payment_notice_waived, 0);
   assert.ok(snapshot.policy_accepted_at);
   database.close();
 });

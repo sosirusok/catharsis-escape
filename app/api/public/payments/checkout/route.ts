@@ -42,7 +42,6 @@ type Payload = {
   consentAccepted?: unknown;
   termsAccepted?: unknown;
   refundPolicyAccepted?: unknown;
-  paymentNoticeWaived?: unknown;
   requestId?: unknown;
 };
 
@@ -111,7 +110,7 @@ export async function POST(request: Request) {
   if (!name) return publicError("INVALID_NAME", "대표자 이름을 확인해 주세요.", 400);
   if (!phone) return publicError("INVALID_PHONE", "휴대전화 번호를 확인해 주세요.", 400);
   if (!Number.isInteger(partySize)) return publicError("INVALID_PARTY", "인원을 확인해 주세요.", 400);
-  if (payload.consentAccepted !== true || payload.termsAccepted !== true || payload.refundPolicyAccepted !== true || payload.paymentNoticeWaived !== true) {
+  if (payload.consentAccepted !== true || payload.termsAccepted !== true || payload.refundPolicyAccepted !== true) {
     return publicError("POLICY_AGREEMENT_REQUIRED", "필수 동의 항목을 확인해 주세요.", 400);
   }
   const slotMatch = /^slot_([a-zA-Z0-9_-]{1,80})_(\d{8})_(\d{1,4})$/.exec(slotId);
@@ -133,7 +132,7 @@ export async function POST(request: Request) {
 
     const fingerprint = await requestFingerprint({
       slotId, partySize, name, phone, consentVersion, termsVersion, refundPolicyVersion,
-      consentAccepted: true, termsAccepted: true, refundPolicyAccepted: true, paymentNoticeWaived: true,
+      consentAccepted: true, termsAccepted: true, refundPolicyAccepted: true,
     });
     const existing = await db.prepare("SELECT id, booking_code, request_id, request_fingerprint, slot_id, theme_name_snapshot, service_date, start_minute, duration_min, party_size, price_total, status, payment_status, payment_order_id, payment_state, payment_key, payment_expires_at, payment_result_expires_at, paid_amount FROM reservations WHERE request_id = ? LIMIT 1")
       .bind(requestId).first<PaymentReservationRow>();
@@ -187,7 +186,7 @@ export async function POST(request: Request) {
       await db.batch([
         db.prepare("INSERT INTO booking_slots (id, theme_id, service_date, start_minute, start_at_utc, duration_min, source) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET theme_id = excluded.theme_id, service_date = excluded.service_date, start_minute = excluded.start_minute, start_at_utc = excluded.start_at_utc, duration_min = excluded.duration_min, source = excluded.source WHERE NOT EXISTS (SELECT 1 FROM reservations WHERE slot_id = booking_slots.id AND status IN ('confirmed','checked_in'))")
           .bind(slotId, themeId, serviceDate, startMinute, startAtUtc, durationMin, override ? "override" : "rule"),
-        db.prepare("INSERT INTO reservations (id, booking_code, request_id, request_fingerprint, slot_id, theme_id, status, party_size, customer_name_enc, phone_enc, phone_hash, phone_last4, theme_name_snapshot, service_date, start_minute, duration_min, price_total, consent_version, terms_version, refund_policy_version, cancel_cutoff_minutes_snapshot, policy_accepted_at, payment_notice_waived, source, payment_status, payment_order_id, payment_state, payment_expires_at) SELECT ?, ?, ?, ?, ?, ?, 'confirmed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'web', 'ready', ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM closures WHERE start_date <= ? AND end_date >= ? AND (scope = 'store' OR theme_id = ?)) AND NOT EXISTS (SELECT 1 FROM slot_overrides WHERE theme_id = ? AND service_date = ? AND start_minute = ? AND action = 'block') AND (EXISTS (SELECT 1 FROM schedule_rules WHERE theme_id = ? AND weekday = ? AND start_minute = ?) OR EXISTS (SELECT 1 FROM slot_overrides WHERE theme_id = ? AND service_date = ? AND start_minute = ? AND action = 'add')) AND NOT EXISTS (SELECT 1 FROM reservations r JOIN booking_slots s ON s.id = r.slot_id WHERE r.theme_id = ? AND r.service_date = ? AND r.status IN ('confirmed','checked_in') AND s.start_minute < ? AND (s.start_minute + s.duration_min + ?) > ?)")
+        db.prepare("INSERT INTO reservations (id, booking_code, request_id, request_fingerprint, slot_id, theme_id, status, party_size, customer_name_enc, phone_enc, phone_hash, phone_last4, theme_name_snapshot, service_date, start_minute, duration_min, price_total, consent_version, terms_version, refund_policy_version, cancel_cutoff_minutes_snapshot, policy_accepted_at, payment_notice_waived, source, payment_status, payment_order_id, payment_state, payment_expires_at) SELECT ?, ?, ?, ?, ?, ?, 'confirmed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'web', 'ready', ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM closures WHERE start_date <= ? AND end_date >= ? AND (scope = 'store' OR theme_id = ?)) AND NOT EXISTS (SELECT 1 FROM slot_overrides WHERE theme_id = ? AND service_date = ? AND start_minute = ? AND action = 'block') AND (EXISTS (SELECT 1 FROM schedule_rules WHERE theme_id = ? AND weekday = ? AND start_minute = ?) OR EXISTS (SELECT 1 FROM slot_overrides WHERE theme_id = ? AND service_date = ? AND start_minute = ? AND action = 'add')) AND NOT EXISTS (SELECT 1 FROM reservations r JOIN booking_slots s ON s.id = r.slot_id WHERE r.theme_id = ? AND r.service_date = ? AND r.status IN ('confirmed','checked_in') AND s.start_minute < ? AND (s.start_minute + s.duration_min + ?) > ?)")
           .bind(
             id, bookingCode, requestId, fingerprint, slotId, themeId, partySize, nameEnc, phoneEnc, phoneDigest,
             phone.slice(-4), theme.name, serviceDate, startMinute, durationMin, priceTotal,

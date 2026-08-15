@@ -1,10 +1,8 @@
 package kr.co.catharsis.owner.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
@@ -12,47 +10,29 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
-private val LightColors =
-    lightColorScheme(
-        primary = Color(0xFF8D2E40),
-        onPrimary = Color.White,
-        primaryContainer = Color(0xFFF7DADF),
-        onPrimaryContainer = Color(0xFF3B0713),
-        secondary = Color(0xFF75562E),
-        secondaryContainer = Color(0xFFF5E1BF),
-        background = Color(0xFFFAF6F1),
-        onBackground = Color(0xFF21191B),
-        surface = Color(0xFFFFFBFE),
-        onSurface = Color(0xFF21191B),
-        surfaceVariant = Color(0xFFF1E8E7),
-        onSurfaceVariant = Color(0xFF514346),
-        outline = Color(0xFF877376),
-        error = Color(0xFFB3261E),
-    )
-
 private val DarkColors =
     darkColorScheme(
-        primary = Color(0xFFFFB1BD),
-        onPrimary = Color(0xFF54101F),
-        primaryContainer = Color(0xFF721D2D),
-        onPrimaryContainer = Color(0xFFFFD9DE),
-        secondary = Color(0xFFE4C18E),
-        secondaryContainer = Color(0xFF57401D),
-        background = Color(0xFF130E10),
-        onBackground = Color(0xFFEDE0E2),
-        surface = Color(0xFF1B1517),
-        onSurface = Color(0xFFEDE0E2),
-        surfaceVariant = Color(0xFF504346),
-        onSurfaceVariant = Color(0xFFD5C2C5),
-        outline = Color(0xFFA08C8F),
-        error = Color(0xFFFFB4AB),
+        primary = Color(0xFF94343C),
+        onPrimary = Color.White,
+        primaryContainer = Color(0xFF3D1B1D),
+        onPrimaryContainer = Color(0xFFEEE9DF),
+        secondary = Color(0xFFC7A36D),
+        secondaryContainer = Color(0xFF3E3020),
+        background = Color(0xFF100F0E),
+        onBackground = Color(0xFFEEE9DF),
+        surface = Color(0xFF1A1715),
+        onSurface = Color(0xFFEEE9DF),
+        surfaceVariant = Color(0xFF27231F),
+        onSurfaceVariant = Color(0xFFAAA39A),
+        outline = Color(0xFF5E554B),
+        error = Color(0xFFE18B91),
     )
 
 private val AppTypography =
     Typography(
         displaySmall =
             TextStyle(
-                fontFamily = FontFamily.Serif,
+                fontFamily = FontFamily.SansSerif,
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 36.sp,
                 lineHeight = 42.sp,
@@ -60,7 +40,7 @@ private val AppTypography =
             ),
         headlineMedium =
             TextStyle(
-                fontFamily = FontFamily.Serif,
+                fontFamily = FontFamily.SansSerif,
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 27.sp,
                 lineHeight = 34.sp,
@@ -104,11 +84,10 @@ private val AppTypography =
 
 @Composable
 fun CatharsisOwnerTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit,
 ) {
     MaterialTheme(
-        colorScheme = if (darkTheme) DarkColors else LightColors,
+        colorScheme = DarkColors,
         typography = AppTypography,
         content = content,
     )

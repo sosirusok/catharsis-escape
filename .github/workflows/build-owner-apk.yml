@@ -10,7 +10,7 @@ on:
       - ".github/workflows/build-owner-apk.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: owner-apk-${{ github.ref }}
@@ -18,6 +18,7 @@ concurrency:
 
 jobs:
   build:
+    if: github.repository == 'sosirusok/catharsis-2vdf9n5pq1'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -95,3 +96,33 @@ jobs:
             owner-app/dist/Catharsis-Owner-unsigned.apk.sha256
           if-no-files-found: error
           retention-days: 90
+
+      - name: Publish installable APK to GitHub Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: owner-v1.0.${{ github.run_number }}
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          release_title="카타르시스 예약 알림 1.0.${GITHUB_RUN_NUMBER}"
+          release_notes="Android 8.0 이상에서 설치할 수 있는 관리자용 APK입니다. 기존 앱과 서명키가 다르면 기존 앱을 삭제한 뒤 설치해 주세요."
+
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release upload "${RELEASE_TAG}" \
+              owner-app/dist/Catharsis-Owner-install.apk \
+              owner-app/dist/Catharsis-Owner-install.apk.sha256 \
+              --clobber
+            gh release edit "${RELEASE_TAG}" \
+              --title "${release_title}" \
+              --notes "${release_notes}" \
+              --latest
+          else
+            gh release create "${RELEASE_TAG}" \
+              owner-app/dist/Catharsis-Owner-install.apk \
+              owner-app/dist/Catharsis-Owner-install.apk.sha256 \
+              --target "${GITHUB_SHA}" \
+              --title "${release_title}" \
+              --notes "${release_notes}" \
+              --latest
+          fi

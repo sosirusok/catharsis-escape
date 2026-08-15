@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { stat } from "node:fs/promises";
 import test from "node:test";
 
 test("renders the production storefront", async () => {
@@ -37,9 +38,13 @@ test("renders the production storefront", async () => {
     /입력 정보는|서버로 전송|저장되지|데이터베이스|미완성|시범|데모/i,
   );
   assert.match(html, /예약 조회·취소/);
-  assert.match(html, /실시간 예약 현황/);
-  assert.match(html, /테마와 이용 인원에 맞는 요금/);
+  assert.match(html, /예약 가능 시간/);
+  assert.match(html, /이용 요금/);
+  assert.doesNotMatch(html, /별도 문자·이메일|결제사실 확인 방법|문이 닫히는 순간|일상에서 탈출/);
   assert.doesNotMatch(html, /예약 확정은 네이버 예약|네이버에서 예약하기/);
+  for (const filename of ["hero.webp", "theme-life.webp", "theme-office.webp", "theme-knock.webp"]) {
+    assert.ok((await stat(new URL(`../public/images/${filename}`, import.meta.url))).size > 50_000);
+  }
 });
 
 function testEnv(overrides = {}) {

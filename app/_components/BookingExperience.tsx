@@ -3,7 +3,6 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { apiUrl, publicSiteUrl, themeImageUrl } from "@/lib/client-runtime";
 import type { BookingSettingsRecord, PublicDateAvailability, ThemeRecord } from "@/lib/models";
-import ThemePosterArt from "@/app/_components/ThemePosterArt";
 
 type ReservationSummary = {
   bookingCode: string;
@@ -194,14 +193,13 @@ export default function BookingExperience({ initialThemes, initialSettings }: Pr
   const [phone, setPhone] = useState("");
   const [privacyAgreed, setPrivacyAgreed] = useState(false);
   const [termsAndRefundAgreed, setTermsAndRefundAgreed] = useState(false);
-  const [paymentNoticeWaived, setPaymentNoticeWaived] = useState(false);
   const [reviewing, setReviewing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [completed, setCompleted] = useState<ReservationSummary | null>(null);
   const [error, setError] = useState("");
   const [paymentError, setPaymentError] = useState("");
   const [manageOpen, setManageOpen] = useState(false);
-  const [informationOpen, setInformationOpen] = useState<"privacy" | "payment-notice" | null>(null);
+  const [informationOpen, setInformationOpen] = useState<"privacy" | null>(null);
   const [paymentMode, setPaymentMode] = useState<"test" | "live" | "unavailable">("unavailable");
   const requestIdRef = useRef(newRequestId());
   const availabilityRequestRef = useRef(0);
@@ -209,7 +207,7 @@ export default function BookingExperience({ initialThemes, initialSettings }: Pr
   const selectedTheme = themes.find((theme) => theme.id === themeId) || themes[0];
   const selectedDate = dates.find((date) => date.date === dateKey);
   const selectedSlot = selectedDate?.slots.find((slot) => slot.id === slotId);
-  const ready = Boolean(paymentMode !== "unavailable" && selectedTheme && selectedDate && selectedSlot?.status === "available" && name.trim().length >= 2 && phone.replace(/\D/g, "").length >= 10 && privacyAgreed && termsAndRefundAgreed && paymentNoticeWaived);
+  const ready = Boolean(paymentMode !== "unavailable" && selectedTheme && selectedDate && selectedSlot?.status === "available" && name.trim().length >= 2 && phone.replace(/\D/g, "").length >= 10 && privacyAgreed && termsAndRefundAgreed);
 
   useEffect(() => {
     fetch(apiUrl("/api/public/bootstrap"), { cache: "no-store" })
@@ -378,7 +376,6 @@ export default function BookingExperience({ initialThemes, initialSettings }: Pr
           consentAccepted: true,
           termsAccepted: true,
           refundPolicyAccepted: true,
-          paymentNoticeWaived: true,
           consentVersion: settings.consentVersion,
           termsVersion: settings.termsVersion,
           refundPolicyVersion: settings.refundPolicyVersion,
@@ -437,7 +434,7 @@ export default function BookingExperience({ initialThemes, initialSettings }: Pr
             <div className="booking-theme-grid">
               {themes.map((theme) => (
                 <button type="button" key={theme.id} className={themeId === theme.id ? "booking-theme selected" : "booking-theme"} onClick={() => selectTheme(theme.id)} aria-pressed={themeId === theme.id}>
-                  <span className={`booking-thumb ${theme.artKey} ${theme.imageKey ? "has-image" : ""}`} style={theme.imageKey ? { backgroundImage: `url(${themeImageUrl(theme.imageKey)})` } : undefined}>{!theme.imageKey && <ThemePosterArt artKey={theme.artKey} title={theme.shortName} compact />}</span>
+                  <span className={`booking-thumb ${theme.artKey} ${theme.imageKey ? "has-image" : ""}`} style={theme.imageKey ? { backgroundImage: `url(${themeImageUrl(theme.imageKey)})` } : undefined} />
                   <span><small>{theme.genre}</small><strong>{theme.shortName}</strong><em>{theme.durationMin}분 · {theme.minPeople}–{theme.maxPeople}인</em></span>
                   <i aria-hidden="true" />
                 </button>
@@ -459,12 +456,13 @@ export default function BookingExperience({ initialThemes, initialSettings }: Pr
                 );
               })}
               {loadingSlots && <div className="date-loading">예약 가능 날짜를 확인하고 있습니다.</div>}
+              {!loadingSlots && dates.length === 0 && <div className="date-loading" role="status">{error || "현재 예약 가능한 날짜가 없습니다."}</div>}
             </div>
           </fieldset>
 
           <fieldset className="form-block" disabled={!settings.bookingOpen}>
             <legend><span>3</span> 시간 선택</legend>
-            <div className="slot-header"><strong>{selectedDate ? formatDate(selectedDate.date) : "날짜를 선택해 주세요."}</strong><span>실시간 예약 현황</span></div>
+            <div className="slot-header"><strong>{selectedDate ? formatDate(selectedDate.date) : "날짜를 선택해 주세요."}</strong><span>예약 가능 시간</span></div>
             <div className="time-grid">
               {selectedDate?.slots.map((slot) => (
                 <button type="button" key={slot.id} disabled={slot.status !== "available"} className={slotId === slot.id ? "time-button selected" : "time-button"} onClick={() => setSlotId(slot.id)} aria-pressed={slotId === slot.id}>
@@ -472,6 +470,7 @@ export default function BookingExperience({ initialThemes, initialSettings }: Pr
                   <small>{slot.status === "available" ? "예약 가능" : slot.status === "held" ? "결제 진행 중" : slot.status === "booked" ? "예약 완료" : slot.status === "blocked" ? "마감" : "접수 마감"}</small>
                 </button>
               ))}
+              {!selectedDate && <p className="no-slots">날짜를 선택하면 예약 가능 시간이 표시됩니다.</p>}
               {!loadingSlots && selectedDate && selectedDate.slots.length === 0 && <p className="no-slots">선택한 날짜에는 운영 시간이 없습니다.</p>}
             </div>
           </fieldset>
@@ -491,10 +490,6 @@ export default function BookingExperience({ initialThemes, initialSettings }: Pr
               <div className="consent-row">
                 <label className="consent"><input type="checkbox" checked={termsAndRefundAgreed} onChange={(event) => setTermsAndRefundAgreed(event.target.checked)} /><span aria-hidden="true" /><b>(필수)</b> 이용약관 및 취소·환불정책에 동의합니다.</label>
                 <span className="consent-links"><a href={policyUrl("terms")} target="_blank" rel="noreferrer">이용약관</a><a href={policyUrl("refund")} target="_blank" rel="noreferrer">환불정책</a></span>
-              </div>
-              <div className="consent-row">
-                <label className="consent"><input type="checkbox" checked={paymentNoticeWaived} onChange={(event) => setPaymentNoticeWaived(event.target.checked)} /><span aria-hidden="true" /><b>(필수)</b> 별도 문자·이메일 안내를 받지 않고 결제완료 화면과 예약조회에서 확인하는 데 동의합니다.</label>
-                <button className="privacy-open" type="button" onClick={() => setInformationOpen("payment-notice")}>내용 보기</button>
               </div>
             </div>
           </fieldset>
@@ -528,16 +523,15 @@ export default function BookingExperience({ initialThemes, initialSettings }: Pr
   );
 }
 
-function InformationModal({ kind, settings, onClose }: { kind: "privacy" | "payment-notice"; settings: BookingSettingsRecord; onClose: () => void }) {
+function InformationModal({ settings, onClose }: { kind: "privacy"; settings: BookingSettingsRecord; onClose: () => void }) {
   const operationalDays = Math.max(30, Number(settings.operationalPiiRetentionDays || 90));
   const legalMonths = Math.max(60, Number(settings.legalRecordRetentionMonths || 60));
-  const privacy = kind === "privacy";
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
       <section className="review-modal privacy-modal" role="dialog" aria-modal="true" aria-labelledby="information-title" onMouseDown={(event) => event.stopPropagation()}>
         <button className="modal-close" type="button" onClick={onClose} aria-label="닫기">×</button>
-        <h2 id="information-title">{privacy ? "개인정보 처리 안내" : "결제결과 확인 방법"}</h2>
-        {privacy ? <><dl className="privacy-list"><div><dt>처리 목적</dt><dd>예약 접수·본인 확인·카드결제·예약 확정·취소·환불 및 분쟁 처리</dd></div><div><dt>처리 항목</dt><dd>이름, 휴대전화번호, 테마, 이용일시, 인원, 예약번호와 주문·결제·환불 정보</dd></div><div><dt>보유 기간</dt><dd>운영용 예약정보는 이용일 또는 취소 후 {operationalDays}일, 계약·결제 기록은 {legalMonths}개월, 불만·분쟁 기록은 3년 보관 후 파기</dd></div></dl><p className="privacy-note">동의를 거부할 수 있으나, 예약계약 이행에 필요한 정보이므로 동의하지 않으면 온라인 예약을 진행할 수 없습니다.</p><a className="policy-detail-link" href={policyUrl("privacy")} target="_blank" rel="noreferrer">개인정보 처리방침 전체 보기</a></> : <><ul className="information-list"><li>결제 후 문자메시지나 이메일은 별도로 발송되지 않습니다.</li><li>결제완료 화면과 예약조회에서 예약번호, 예약내역, 결제금액과 카드 매출전표를 확인할 수 있습니다.</li><li>이 동의는 취소·환불 및 거래내역 확인 권리를 제한하지 않습니다.</li></ul><p className="privacy-note">동의하지 않는 경우 {settings.storePhone ? `${settings.storePhone}로 ` : "매장으로 "}다른 예약 방법을 문의해 주세요.</p></>}
+        <h2 id="information-title">개인정보 처리 안내</h2>
+        <dl className="privacy-list"><div><dt>처리 목적</dt><dd>예약 접수·본인 확인·카드결제·예약 확정·취소·환불 및 분쟁 처리</dd></div><div><dt>처리 항목</dt><dd>이름, 휴대전화번호, 테마, 이용일시, 인원, 예약번호와 주문·결제·환불 정보</dd></div><div><dt>보유 기간</dt><dd>운영용 예약정보는 이용일 또는 취소 후 {operationalDays}일, 계약·결제 기록은 {legalMonths}개월, 불만·분쟁 기록은 3년 보관 후 파기</dd></div></dl><p className="privacy-note">동의를 거부할 수 있으나, 예약계약 이행에 필요한 정보이므로 동의하지 않으면 온라인 예약을 진행할 수 없습니다.</p><a className="policy-detail-link" href={policyUrl("privacy")} target="_blank" rel="noreferrer">개인정보 처리방침 전체 보기</a>
         <button className="button primary privacy-confirm" type="button" onClick={onClose}>확인</button>
       </section>
     </div>
@@ -551,7 +545,7 @@ function SuccessModal({ reservation, onClose, onManage }: { reservation: Reserva
     catch { setCopied(false); }
   };
   const receiptUrl = safeReceiptUrl(reservation.receiptUrl);
-  return <div className="modal-backdrop"><section className="review-modal success-modal printable-reservation" role="dialog" aria-modal="true" aria-labelledby="success-title"><div className="success-seal">✓</div><h2 id="success-title">예약이 확정되었습니다.</h2><p className="success-lead">결제가 정상적으로 완료되었습니다. 현장 확인을 위해 예약번호를 보관해 주세요.</p><div className="booking-code"><span>예약번호</span><strong>{reservation.bookingCode}</strong><button type="button" onClick={copyCode}>{copied ? "복사됨" : "복사"}</button></div><dl><div><dt>테마</dt><dd>{reservation.themeName}</dd></div><div><dt>일시</dt><dd>{formatDate(reservation.date, true)} {minuteToTime(reservation.startMinute)}</dd></div><div><dt>인원</dt><dd>{reservation.partySize}명</dd></div>{reservation.priceTotal > 0 && <div><dt>결제 금액</dt><dd>{reservation.priceTotal.toLocaleString("ko-KR")}원</dd></div>}</dl><div className="success-tools"><button type="button" onClick={() => window.print()}>예약 내역 인쇄</button>{receiptUrl && <a href={receiptUrl} target="_blank" rel="noreferrer">카드 매출전표</a>}</div><p className="booking-next">변경·취소는 예약조회에서 신청할 수 있습니다. 이 기기에는 최근 예약번호가 함께 보관됩니다.</p><div className="success-actions"><button className="button quiet" onClick={onManage}>예약 내역 보기</button><button className="button primary" onClick={onClose}>확인</button></div></section></div>;
+  return <div className="modal-backdrop"><section className="review-modal success-modal printable-reservation" role="dialog" aria-modal="true" aria-labelledby="success-title"><div className="success-seal">✓</div><h2 id="success-title">예약이 확정되었습니다.</h2><p className="success-lead">결제가 완료되었습니다.</p><div className="booking-code"><span>예약번호</span><strong>{reservation.bookingCode}</strong><button type="button" onClick={copyCode}>{copied ? "복사됨" : "복사"}</button></div><dl><div><dt>테마</dt><dd>{reservation.themeName}</dd></div><div><dt>일시</dt><dd>{formatDate(reservation.date, true)} {minuteToTime(reservation.startMinute)}</dd></div><div><dt>인원</dt><dd>{reservation.partySize}명</dd></div>{reservation.priceTotal > 0 && <div><dt>결제 금액</dt><dd>{reservation.priceTotal.toLocaleString("ko-KR")}원</dd></div>}</dl><div className="success-tools"><button type="button" onClick={() => window.print()}>예약 내역 인쇄</button>{receiptUrl && <a href={receiptUrl} target="_blank" rel="noreferrer">카드 매출전표</a>}</div><p className="booking-next">예약번호를 캡처해 두세요. 예약 조회와 취소에도 사용됩니다.</p><div className="success-actions"><button className="button quiet" onClick={onManage}>예약 내역 보기</button><button className="button primary" onClick={onClose}>확인</button></div></section></div>;
 }
 
 function ManageReservation({ onClose }: { onClose: () => void }) {

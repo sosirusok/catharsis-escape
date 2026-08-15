@@ -45,7 +45,6 @@ function MerchantDetails({ settings }: { settings: StoreSettings }) {
           {settings.businessEmail && <span>{(settings.businessAddress || settings.storePhone) && " · "}<a href={`mailto:${settings.businessEmail}`}>{settings.businessEmail}</a></span>}
         </p>
       )}
-      <p><span>호스팅서비스 제공자 GitHub, Inc.</span></p>
     </div>
   );
 }

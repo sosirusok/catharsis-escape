@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { apiUrl, themeImageUrl } from "@/lib/client-runtime";
 import type { ThemeRecord } from "@/lib/models";
-import ThemePosterArt from "@/app/_components/ThemePosterArt";
 
 function Arrow() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6" /></svg>;
@@ -23,11 +22,11 @@ export default function DynamicThemes({ initialThemes }: { initialThemes: ThemeR
   };
   return (
     <section className="themes-section" id="themes">
-      <div className="shell section-heading"><div><h2>테마</h2><p>장르와 난이도, 이용 인원을 확인하고 선택해 주세요.</p></div></div>
+      <div className="shell section-heading"><div><h2>테마</h2></div></div>
       <div className="theme-list shell">
         {themes.map((theme) => (
           <article className="theme-card" key={theme.id}>
-            <div className={`theme-art ${theme.artKey} ${theme.imageKey ? "has-image" : ""}`} style={theme.imageKey ? { backgroundImage: `url(${themeImageUrl(theme.imageKey)})` } : undefined} role="img" aria-label={`${theme.name} 테마 이미지`}>{!theme.imageKey && <ThemePosterArt artKey={theme.artKey} title={theme.shortName} />}</div>
+            <div className={`theme-art ${theme.artKey} ${theme.imageKey ? "has-image" : ""}`} style={theme.imageKey ? { backgroundImage: `url(${themeImageUrl(theme.imageKey)})` } : undefined} role="img" aria-label={`${theme.name} 테마 이미지`} />
             <div className="theme-info"><div className="theme-topline"><span>{theme.genre}</span><span>{theme.durationMin}분</span></div><h3>{theme.name}</h3><p className="synopsis">{theme.synopsis}</p><div className="theme-tags"><span>{theme.minPeople}–{theme.maxPeople}인</span><span>{theme.difficultyLabel || `난이도 ${theme.difficulty}/5`}</span>{theme.notice && <span>{theme.notice}</span>}</div><button className="theme-book" onClick={() => book(theme.id)}>이 테마 예약하기 <Arrow /></button></div>
           </article>
         ))}

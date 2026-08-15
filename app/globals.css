@@ -269,59 +269,10 @@ svg {
   min-height: 100%;
   overflow: hidden;
   background:
-    radial-gradient(circle at 58% 46%, rgba(172, 126, 72, 0.18), transparent 27%),
-    linear-gradient(135deg, #2a211b 0%, #12100f 48%, #090808 100%);
+    linear-gradient(90deg, rgba(13, 12, 11, 0.88), transparent 25%, transparent 79%, rgba(9, 8, 8, 0.32)),
+    url("/images/hero.webp") center/cover no-repeat,
+    linear-gradient(145deg, #2a211b, #090808);
 }
-
-.hero-visual::before,
-.hero-visual::after {
-  content: "";
-  position: absolute;
-  pointer-events: none;
-}
-
-.hero-visual::before {
-  width: min(54vw, 690px);
-  aspect-ratio: 1;
-  right: -10%;
-  top: 11%;
-  border: 1px solid rgba(196, 158, 103, 0.34);
-  transform: rotate(45deg);
-  box-shadow: 0 0 0 48px rgba(174, 132, 77, 0.035), 0 0 0 96px rgba(174, 132, 77, 0.025);
-}
-
-.hero-visual::after {
-  inset: 0;
-  background: repeating-linear-gradient(90deg, transparent 0 79px, rgba(255,255,255,.025) 80px), linear-gradient(90deg, rgba(13,12,11,.7), transparent 30%);
-}
-
-.hero-poster-frame {
-  position: absolute;
-  z-index: 1;
-  width: min(29vw, 420px);
-  aspect-ratio: .72;
-  left: 51%;
-  top: 48%;
-  transform: translate(-50%, -50%);
-  display: grid;
-  place-items: center;
-  border: 1px solid rgba(220, 187, 137, .48);
-  color: #d3b17c;
-  box-shadow: inset 0 0 80px rgba(0,0,0,.34), 0 28px 90px rgba(0,0,0,.42);
-}
-
-.hero-poster-frame::before,
-.hero-poster-frame::after {
-  content: "";
-  position: absolute;
-  inset: 9%;
-  border: 1px solid rgba(220, 187, 137, .2);
-}
-
-.hero-poster-frame::after { inset: 22%; transform: rotate(45deg); }
-.hero-poster-frame > span { z-index: 1; font: 400 clamp(94px, 12vw, 180px) Georgia, serif; }
-.hero-poster-frame > i { position: absolute; width: 1px; height: 78%; background: linear-gradient(transparent, rgba(220,187,137,.55), transparent); transform: rotate(34deg); }
-.hero-poster-frame > b { position: absolute; right: 8%; bottom: 6%; color: rgba(220,187,137,.72); font: 400 20px Georgia,serif; }
 
 .hero-facts {
   position: absolute;
@@ -441,6 +392,42 @@ svg {
   min-height: 500px;
 }
 
+.theme-art,
+.booking-thumb,
+.theme-admin-art,
+.theme-editor-art {
+  background-position: center;
+  background-size: cover;
+}
+
+.theme-art.life,
+.booking-thumb.life,
+.theme-admin-art.life,
+.theme-editor-art.life {
+  background-image:
+    linear-gradient(0deg, rgba(12, 9, 8, 0.5), transparent 64%),
+    linear-gradient(100deg, rgba(21, 14, 11, 0.16), rgba(21, 14, 11, 0.48)),
+    url("/images/theme-life.webp");
+}
+
+.theme-art.office,
+.booking-thumb.office,
+.theme-admin-art.office,
+.theme-editor-art.office {
+  background-image:
+    linear-gradient(0deg, rgba(7, 11, 11, 0.52), transparent 62%),
+    url("/images/theme-office.webp");
+}
+
+.theme-art.knock,
+.booking-thumb.knock,
+.theme-admin-art.knock,
+.theme-editor-art.knock {
+  background-image:
+    linear-gradient(0deg, rgba(16, 10, 8, 0.56), transparent 62%),
+    url("/images/theme-knock.webp");
+}
+
 .theme-art.has-image,
 .booking-thumb.has-image,
 .theme-admin-art.has-image,
@@ -454,34 +441,6 @@ svg {
   inset: 0;
   background: linear-gradient(0deg, rgba(12, 9, 8, 0.55), transparent 64%);
 }
-
-.theme-poster-art {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  display: grid;
-  place-content: end start;
-  padding: clamp(24px, 4vw, 58px);
-  isolation: isolate;
-  color: #eadbc6;
-  background: radial-gradient(circle at 62% 38%, rgba(194,154,99,.2), transparent 24%), linear-gradient(145deg,#3c2c25,#171311 65%,#0d0c0b);
-}
-
-.theme-poster-art.office { background: linear-gradient(135deg,rgba(214,223,219,.08) 25%,transparent 25%) 0 0/56px 56px, linear-gradient(145deg,#26302f,#101515 68%,#090b0b); }
-.theme-poster-art.knock { background: radial-gradient(circle at 72% 25%,rgba(96,139,145,.22),transparent 24%), linear-gradient(145deg,#32231e,#160f0d 68%,#090807); }
-.theme-poster-art::before { content:""; position:absolute; z-index:-1; width:72%; aspect-ratio:1; right:-13%; top:-8%; border:1px solid rgba(220,187,137,.38); transform:rotate(45deg); box-shadow:0 0 0 34px rgba(220,187,137,.035),0 0 0 68px rgba(220,187,137,.025); }
-.theme-poster-art.office::before { border-radius:50%; transform:none; border-color:rgba(192,216,211,.32); }
-.theme-poster-art.knock::before { width:42%; right:11%; top:8%; aspect-ratio:.58; transform:none; border-color:rgba(205,174,135,.3); box-shadow:inset 0 0 45px rgba(0,0,0,.45); }
-.theme-poster-number { position:absolute; left:7%; top:6%; color:rgba(234,219,198,.62); font:400 16px Georgia,serif; }
-.theme-poster-orbit { position:absolute; width:38%; aspect-ratio:1; right:17%; top:21%; border:1px solid rgba(234,219,198,.25); border-radius:50%; }
-.theme-poster-axis { position:absolute; width:1px; height:74%; right:34%; top:4%; background:linear-gradient(transparent,rgba(234,219,198,.45),transparent); transform:rotate(28deg); }
-.theme-poster-art > strong { max-width:82%; font-size:clamp(27px,3.3vw,48px); font-weight:570; line-height:1.2; letter-spacing:-.05em; }
-.theme-poster-art > small { margin-top:12px; color:rgba(234,219,198,.62); font-size:14px; }
-.theme-poster-art.compact { padding:10px; }
-.theme-poster-art.compact .theme-poster-number,
-.theme-poster-art.compact .theme-poster-orbit,
-.theme-poster-art.compact > small { display:none; }
-.theme-poster-art.compact > strong { max-width:90%; font-size:14px; line-height:1.15; }
 
 .theme-art::after {
   content: "";
@@ -570,7 +529,9 @@ svg {
   min-height: 100svh;
   padding: 116px 4.8vw 80px;
   align-self: start;
-  background: radial-gradient(circle at 20% 20%, rgba(171,125,75,.14), transparent 28%), linear-gradient(145deg,#211a17,#100e0d 72%);
+  background:
+    linear-gradient(rgba(18, 15, 13, 0.9), rgba(18, 15, 13, 0.96)),
+    url("/images/theme-knock.webp") center/cover;
   color: var(--paper);
 }
 
@@ -1187,7 +1148,7 @@ svg {
   padding-top: 18px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 24px;
 }
 
@@ -1956,8 +1917,6 @@ summary:focus-visible {
   .hero-visual {
     background-position: 63% center;
   }
-
-  .hero-poster-frame { width: min(76vw, 350px); left: 68%; opacity: .84; }
 
   .themes-section {
     padding: 94px 0 108px;

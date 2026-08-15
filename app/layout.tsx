@@ -12,7 +12,7 @@ export const metadata: Metadata = {
   },
   openGraph: {
     title: "카타르시스 이스케이프",
-    description: "일상에서 탈출하는 단 60분.",
+    description: "부산 서면 카타르시스 이스케이프 테마와 예약 안내",
     type: "website",
     locale: "ko_KR",
   },

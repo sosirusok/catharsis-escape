@@ -218,11 +218,11 @@ export default function Home() {
         <div className="hero-content">
           <p className="hero-store">부산 서면 방탈출 카페</p>
           <h1>
-            일상에서 탈출하는
+            카타르시스
             <br />
-            <em>단 한 편.</em>
+            <em>이스케이프</em>
           </h1>
-          <p className="hero-copy">문이 닫히는 순간, 이야기가 시작됩니다.</p>
+          <p className="hero-copy">서면역 2번 출구에서 도보 378m</p>
           <div className="hero-actions">
             <button className="button primary" onClick={() => goBooking()}>
               예약하기 <Arrow />
@@ -232,46 +232,13 @@ export default function Home() {
             </a>
           </div>
         </div>
-        <div className="hero-visual" role="img" aria-label="카타르시스 이스케이프 포스터 아트">
-          <div className="hero-poster-frame" aria-hidden="true"><span>C</span><i /><b>60</b></div>
-        </div>
+        <div className="hero-visual" role="img" aria-label="카타르시스 이스케이프 테마 공간" />
         <StoreFacts />
       </section>
 
       <DynamicThemes initialThemes={DEFAULT_THEMES} />
 
       <BookingExperience initialThemes={DEFAULT_THEMES} initialSettings={INITIAL_PUBLIC_SETTINGS} />
-
-      <section className="guide-section" id="guide">
-        <div className="shell">
-          <div className="guide-heading">
-            <h2>이용 안내</h2>
-            <p>원활한 진행을 위해 시작 10분 전까지 도착해 주세요.</p>
-          </div>
-          <ol className="steps">
-            <li>
-              <span>01</span>
-              <strong>예약 확인</strong>
-              <p>예약한 테마와 시작 시간을 확인해 주세요.</p>
-            </li>
-            <li>
-              <span>02</span>
-              <strong>10분 전 도착</strong>
-              <p>지각 시 이용 시간이 줄어들 수 있습니다.</p>
-            </li>
-            <li>
-              <span>03</span>
-              <strong>이용 방법 안내</strong>
-              <p>입장 전 자물쇠와 힌트 사용법을 안내합니다.</p>
-            </li>
-            <li>
-              <span>04</span>
-              <strong>테마 플레이</strong>
-              <p>제한 시간 안에 단서를 연결해 이야기의 결말을 완성하세요.</p>
-            </li>
-          </ol>
-        </div>
-      </section>
 
       <DynamicRates initialThemes={DEFAULT_THEMES} />
 
@@ -327,30 +294,6 @@ export default function Home() {
           <h2>자주 묻는 질문</h2>
         </div>
         <div className="faq-list">
-          <details>
-            <summary>
-              방탈출이 처음이어도 참여할 수 있나요?<span>＋</span>
-            </summary>
-            <p>
-              네. 입장 전 자물쇠와 힌트 사용법을 안내해 드립니다. 처음이라면
-              난이도와 취향을 확인해 테마를 골라 주세요.
-            </p>
-          </details>
-          <details>
-            <summary>
-              몇 명이 이용하기 좋은가요?<span>＋</span>
-            </summary>
-            <p>
-              테마마다 이용 가능 인원이 다릅니다. 각 테마 안내와 예약 화면에서
-              인원 범위를 확인해 주세요.
-            </p>
-          </details>
-          <details>
-            <summary>
-              어떤 편의시설이 있나요?<span>＋</span>
-            </summary>
-            <p>물품보관함과 스마트폰 충전 시설을 이용할 수 있습니다.</p>
-          </details>
           <details>
             <summary>
               예약 변경은 어떻게 하나요?<span>＋</span>

@@ -49,7 +49,6 @@ export default function DynamicRates({ initialThemes }: { initialThemes: ThemeRe
       <div className="shell rates-layout">
         <div className="rates-title">
           <h2>이용 요금</h2>
-          <p>테마와 이용 인원에 맞는 요금을 확인해 주세요.</p>
         </div>
         <div className="rates-content">
           <div className="rate-theme-tabs" role="tablist" aria-label="요금을 확인할 테마">
@@ -91,7 +90,6 @@ export default function DynamicRates({ initialThemes }: { initialThemes: ThemeRe
                 ))}
               </div>
               <div className="rate-footer">
-                <p>선택한 인원에 따른 최종 요금은 예약 확인 단계에서 다시 안내됩니다.</p>
                 <button type="button" onClick={goBooking}>이 테마 예약하기 <Arrow /></button>
               </div>
             </>

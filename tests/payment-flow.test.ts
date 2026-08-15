@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 
-import { cleanupRetainedData, getPaymentResult, confirmReservationPayment, refundReservationPayment, releaseReviewedUnpaidReservation } from "../lib/payment-flow";
+import { cleanupRetainedData, getPaymentResult, confirmReservationPayment, paymentServiceStatus, reconcileDailyNaverPayments, reconcileRecentProviderPayments, refundReservationPayment, releaseReviewedUnpaidReservation } from "../lib/payment-flow";
 import { addDays, encryptPrivate, kstDateKey, readJsonBody, sha256, weekdayKst } from "../lib/booking";
 import { buildAvailability } from "../lib/availability";
 import { isPublicWebOriginAllowed } from "../lib/request-origin";
@@ -13,6 +13,7 @@ import { POST as checkoutPayment } from "../app/api/public/payments/checkout/rou
 import { POST as tossWebhook } from "../app/api/public/payments/toss/webhook/route";
 import { PUT as updateSettings } from "../app/api/admin/settings/route";
 import { ADMIN_SESSION_COOKIE, createAdminSession } from "../lib/admin";
+import { getNaverPayment } from "../lib/naver-payments";
 
 class SqliteStatement {
   private values: unknown[] = [];
@@ -66,10 +67,25 @@ class SqliteD1 {
 
 function applyMigrations(database: DatabaseSync) {
   database.exec("PRAGMA foreign_keys = ON");
-  for (const file of ["drizzle/0000_funny_shiva.sql", "drizzle/0001_fixed_groot.sql", "drizzle/0002_sticky_mathemanic.sql", "drizzle/0003_wonderful_dazzler.sql", "drizzle/0004_fair_terrax.sql"]) {
+  for (const file of ["drizzle/0000_funny_shiva.sql", "drizzle/0001_fixed_groot.sql", "drizzle/0002_sticky_mathemanic.sql", "drizzle/0003_wonderful_dazzler.sql", "drizzle/0004_fair_terrax.sql", "drizzle/0005_naver_payment_provider.sql", "drizzle/0006_persist_refund_requester.sql"]) {
     const migration = readFileSync(new URL(`../${file}`, import.meta.url), "utf8");
     for (const statement of migration.split("--> statement-breakpoint").map((value) => value.trim()).filter(Boolean)) database.exec(statement);
   }
+}
+
+function naverCheckoutEnv(DB: SqliteD1) {
+  return {
+    DB,
+    PAYMENT_PROVIDER: "naverpay",
+    NAVER_PAY_MODE: "development",
+    NAVER_PAY_CLIENT_ID: "unit-client-id",
+    NAVER_PAY_CLIENT_SECRET: "unit-client-secret",
+    NAVER_PAY_CHAIN_ID: "unit-chain-id",
+    NAVER_PAY_TAX_SCOPE: "taxable",
+    BOOKING_DATA_KEY: "unit-test-booking-data-key-32-bytes-minimum",
+    BOOKING_LOOKUP_PEPPER: "unit-test-booking-lookup-pepper-32-bytes-minimum",
+    ALLOW_PUBLIC_TEST_PAYMENTS: "1",
+  };
 }
 
 function pemPrivateKey(bytes: ArrayBuffer): string {
@@ -179,6 +195,646 @@ test("provider 5xx recovers from the authoritative payment and slot uniqueness b
   }
 });
 
+test("legacy Toss reconciliation still finds a provider payment when the callback never stored a payment key", async () => {
+  const database = new DatabaseSync(":memory:");
+  applyMigrations(database);
+  const d1 = new SqliteD1(database);
+  (globalThis as typeof globalThis & { __SITES_ENV__?: unknown }).__SITES_ENV__ = {
+    DB: d1,
+    TOSS_CLIENT_KEY: ["test", "gck", "unit"].join("_"),
+    TOSS_SECRET_KEY: ["test", "gsk", "unit"].join("_"),
+  };
+  seedReservation(database, "legacy0", "slot-legacy");
+  database.prepare("UPDATE reservations SET payment_status='failed', payment_key=NULL, payment_provider_checked_at=0 WHERE id='legacy0'").run();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    const url = String(input);
+    if (url.endsWith("/payments/orders/CTP_legacy0")) return Response.json(payment("legacy0"));
+    if (url.endsWith("/payments/payment_key_legacy0/cancel")) return Response.json(payment("legacy0", "CANCELED"));
+    return Response.json({}, { status: 404 });
+  };
+  try {
+    await reconcileRecentProviderPayments(Date.now(), 10);
+    const row = database.prepare("SELECT status,payment_status,payment_key FROM reservations WHERE id='legacy0'").get() as Record<string, unknown>;
+    assert.equal(row.status, "cancelled");
+    assert.equal(row.payment_status, "refunded");
+    assert.equal(row.payment_key, "payment_key_legacy0");
+  } finally {
+    globalThis.fetch = originalFetch;
+    database.close();
+  }
+});
+
+test("Naver Pay approval validates the merchant order and customer cancellation keeps tax and requester data", async () => {
+  const database = new DatabaseSync(":memory:");
+  applyMigrations(database);
+  const d1 = new SqliteD1(database);
+  (globalThis as typeof globalThis & { __SITES_ENV__?: unknown }).__SITES_ENV__ = naverCheckoutEnv(d1);
+  seedReservation(database, "naver8", "slot-naver");
+  database.prepare("UPDATE reservations SET payment_provider = 'naverpay', payment_tax_scope_amount = 44000, payment_tax_ex_scope_amount = 0 WHERE id = 'naver8'").run();
+
+  const requests: Array<{ url: string; headers: Headers; body: string }> = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    requests.push({ url, headers: new Headers(init?.headers), body: String(init?.body || "") });
+    if (url.endsWith("/v2.2/apply/payment")) {
+      return Response.json({
+        code: "Success",
+        body: {
+          paymentId: "npay_naver8",
+          detail: {
+            paymentId: "npay_naver8",
+            merchantPayKey: "CTP_naver8",
+            admissionTypeCode: "01",
+            admissionState: "SUCCESS",
+            admissionYmdt: "20260815140000",
+            totalPayAmount: 44_000,
+            taxScopeAmount: 44_000,
+            taxExScopeAmount: 0,
+            primaryPayMeans: "CARD",
+            npointPayAmount: 0,
+          },
+        },
+      });
+    }
+    if (url.endsWith("/v1/cancel")) {
+      return Response.json({
+        code: "Success",
+        body: {
+          paymentId: "npay_naver8",
+          primaryPayMeans: "CARD",
+          primaryPayCancelAmount: 44_000,
+          npointCancelAmount: 0,
+          giftCardCancelAmount: 0,
+          discountCancelAmount: 0,
+          taxScopeAmount: 44_000,
+          taxExScopeAmount: 0,
+          totalRestAmount: 0,
+          cancelYmdt: "20260815141000",
+        },
+      });
+    }
+    return Response.json({ code: "NotFound", message: "not found" }, { status: 404 });
+  };
+
+  try {
+    const state = "naver8".repeat(64).slice(0, 64);
+    const confirmed = await confirmReservationPayment({ state, paymentKey: "npay_naver8" });
+    assert.equal(confirmed.payment_status, "paid");
+    assert.equal(database.prepare("SELECT payment_provider, payment_method FROM reservations WHERE id = 'naver8'").get()?.payment_provider, "naverpay");
+    assert.equal(database.prepare("SELECT payment_method FROM reservations WHERE id = 'naver8'").get()?.payment_method, "네이버페이 카드");
+
+    await refundReservationPayment("naver8", "고객 요청 취소", "1");
+    assert.equal(database.prepare("SELECT payment_status FROM reservations WHERE id = 'naver8'").get()?.payment_status, "refunded");
+    assert.equal(database.prepare("SELECT payment_refund_requester FROM reservations WHERE id = 'naver8'").get()?.payment_refund_requester, "1");
+
+    const approve = requests.find((entry) => entry.url.endsWith("/v2.2/apply/payment"));
+    assert.ok(approve);
+    assert.equal(new URLSearchParams(approve.body).get("paymentId"), "npay_naver8");
+    assert.equal(approve.headers.get("X-Naver-Client-Secret"), "unit-client-secret");
+    assert.equal(approve.headers.get("X-NaverPay-Idempotency-Key"), "confirm-npay_naver8");
+
+    const cancel = requests.find((entry) => entry.url.endsWith("/v1/cancel"));
+    assert.ok(cancel);
+    const cancelBody = new URLSearchParams(cancel.body);
+    assert.equal(cancelBody.get("cancelRequester"), "1");
+    assert.equal(cancelBody.get("taxScopeAmount"), "44000");
+    assert.equal(cancelBody.get("taxExScopeAmount"), "0");
+    assert.equal(cancelBody.get("doCompareRest"), "1");
+    assert.equal(cancelBody.get("expectedRestAmount"), "0");
+  } finally {
+    globalThis.fetch = originalFetch;
+    database.close();
+  }
+});
+
+test("historical Naver refunds work while inactive and CancelNotComplete is later corrected to the provider timestamp", async () => {
+  const database = new DatabaseSync(":memory:");
+  applyMigrations(database);
+  const d1 = new SqliteD1(database);
+  (globalThis as typeof globalThis & { __SITES_ENV__?: unknown }).__SITES_ENV__ = {
+    DB: d1,
+    PAYMENT_PROVIDER: "disabled",
+    NAVER_PAY_MODE: "development",
+    NAVER_PAY_CLIENT_ID: "unit-client-id",
+    NAVER_PAY_CLIENT_SECRET: "unit-client-secret",
+    NAVER_PAY_CHAIN_ID: "unit-chain-id",
+  };
+  seedReservation(database, "cancel7", "slot-cancel-pending", "paid");
+  database.prepare("UPDATE reservations SET payment_provider='naverpay', payment_tax_scope_amount=44000, payment_key='npay_cancel7' WHERE id='cancel7'").run();
+
+  let phase: "cancel" | "history" = "cancel";
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    const url = String(input);
+    if (phase === "cancel" && url.endsWith("/v1/cancel")) {
+      return Response.json({ code: "CancelNotComplete", message: "automatic retry scheduled" });
+    }
+    if (phase === "history" && url.endsWith("/v2.3/list/history")) {
+      return Response.json({ code: "Success", body: { list: [{ paymentId: "npay_cancel7" }], totalPageCount: 1 } });
+    }
+    if (phase === "history" && url.endsWith("/v2.3/list/history/npay_cancel7")) {
+      return Response.json({ code: "Success", body: { list: [
+        {
+          paymentId: "npay_cancel7",
+          merchantPayKey: "CTP_cancel7",
+          admissionTypeCode: "01",
+          admissionState: "SUCCESS",
+          admissionYmdt: "20260815140000",
+          totalPayAmount: 44_000,
+          taxScopeAmount: 44_000,
+          taxExScopeAmount: 0,
+          primaryPayMeans: "CARD",
+          npointPayAmount: 0,
+        },
+        {
+          paymentId: "npay_cancel7",
+          merchantPayKey: "CTP_cancel7",
+          admissionTypeCode: "03",
+          admissionState: "SUCCESS",
+          admissionYmdt: "20260815150000",
+          totalPayAmount: 44_000,
+          taxScopeAmount: 44_000,
+          taxExScopeAmount: 0,
+          primaryPayMeans: "CARD",
+        },
+      ] } });
+    }
+    return Response.json({ code: "NotFound" }, { status: 404 });
+  };
+  try {
+    assert.equal((await refundReservationPayment("cancel7", "고객 온라인 취소", "1"))?.payment_status, "refunded");
+    phase = "history";
+    assert.deepEqual(await reconcileDailyNaverPayments(Date.UTC(2026, 7, 16, 6, 0, 0), 1), { scanned: 1, failed: 0, skipped: false });
+    assert.equal(database.prepare("SELECT refunded_at FROM reservations WHERE id='cancel7'").get()?.refunded_at, "2026-08-15T15:00:00+09:00");
+  } finally {
+    globalThis.fetch = originalFetch;
+    database.close();
+  }
+});
+
+test("Naver Pay approval response loss is not retried before the 180-second reconciliation window", async () => {
+  const database = new DatabaseSync(":memory:");
+  applyMigrations(database);
+  const d1 = new SqliteD1(database);
+  (globalThis as typeof globalThis & { __SITES_ENV__?: unknown }).__SITES_ENV__ = naverCheckoutEnv(d1);
+  seedReservation(database, "naver9", "slot-naver-timeout");
+  database.prepare("UPDATE reservations SET payment_provider = 'naverpay', payment_tax_scope_amount = 44000, payment_tax_ex_scope_amount = 0 WHERE id = 'naver9'").run();
+
+  let providerCalls = 0;
+  let historyAvailable = false;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    providerCalls += 1;
+    if (historyAvailable && String(input).includes("/v2.3/list/history/npay_naver9")) {
+      return Response.json({
+        code: "Success",
+        body: {
+          list: [{
+            paymentId: "npay_naver9",
+            merchantPayKey: "CTP_naver9",
+            admissionTypeCode: "01",
+            admissionState: "SUCCESS",
+            admissionYmdt: "20260815140000",
+            totalPayAmount: 44_000,
+            taxScopeAmount: 44_000,
+            taxExScopeAmount: 0,
+            primaryPayMeans: "CARD",
+            npointPayAmount: 0,
+          }],
+        },
+      });
+    }
+    throw new Error("network response lost");
+  };
+  try {
+    const state = "naver9".repeat(64).slice(0, 64);
+    await assert.rejects(() => confirmReservationPayment({ state, paymentKey: "npay_naver9" }), /PAYMENT_PROCESSING/);
+    const firstAttemptAt = Number(database.prepare("SELECT payment_provider_checked_at FROM reservations WHERE id = 'naver9'").get()?.payment_provider_checked_at);
+    await assert.rejects(() => confirmReservationPayment({ state, paymentKey: "npay_naver9" }), /PAYMENT_PROCESSING/);
+    assert.equal(providerCalls, 1);
+    assert.equal(database.prepare("SELECT payment_status FROM reservations WHERE id = 'naver9'").get()?.payment_status, "confirming");
+    await reconcileRecentProviderPayments(firstAttemptAt + 61_000, 10);
+    assert.equal(providerCalls, 1);
+    historyAvailable = true;
+    await reconcileRecentProviderPayments(firstAttemptAt + 181_000, 10);
+    assert.equal(providerCalls, 2);
+    assert.equal(database.prepare("SELECT payment_status FROM reservations WHERE id = 'naver9'").get()?.payment_status, "paid");
+  } finally {
+    globalThis.fetch = originalFetch;
+    database.close();
+  }
+});
+
+test("a Naver paymentId submitted with the wrong state is relinked to its verified merchant order without poisoning either reservation", async () => {
+  const database = new DatabaseSync(":memory:");
+  applyMigrations(database);
+  const d1 = new SqliteD1(database);
+  (globalThis as typeof globalThis & { __SITES_ENV__?: unknown }).__SITES_ENV__ = naverCheckoutEnv(d1);
+  seedReservation(database, "wrong1", "slot-wrong", "ready", 630);
+  seedReservation(database, "right2", "slot-right", "ready", 750);
+  database.prepare("UPDATE reservations SET payment_provider='naverpay', payment_tax_scope_amount=44000 WHERE id IN ('wrong1','right2')").run();
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    if (String(input).endsWith("/v2.2/apply/payment")) {
+      return Response.json({
+        code: "Success",
+        body: {
+          paymentId: "npay_right2",
+          detail: {
+            paymentId: "npay_right2",
+            merchantPayKey: "CTP_right2",
+            admissionTypeCode: "01",
+            admissionState: "SUCCESS",
+            admissionYmdt: "20260815140000",
+            totalPayAmount: 44_000,
+            taxScopeAmount: 44_000,
+            taxExScopeAmount: 0,
+            primaryPayMeans: "CARD",
+            npointPayAmount: 0,
+          },
+        },
+      });
+    }
+    return Response.json({ code: "NotFound" }, { status: 404 });
+  };
+  try {
+    const wrongState = "wrong1".repeat(64).slice(0, 64);
+    await assert.rejects(() => confirmReservationPayment({ state: wrongState, paymentKey: "npay_right2" }), /PAYMENT_INFORMATION_MISMATCH/);
+    const wrong = database.prepare("SELECT payment_status,payment_key FROM reservations WHERE id='wrong1'").get() as Record<string, unknown>;
+    const right = database.prepare("SELECT payment_status,payment_key FROM reservations WHERE id='right2'").get() as Record<string, unknown>;
+    assert.equal(wrong.payment_status, "ready");
+    assert.equal(wrong.payment_key, null);
+    assert.equal(right.payment_status, "paid");
+    assert.equal(right.payment_key, "npay_right2");
+  } finally {
+    globalThis.fetch = originalFetch;
+    database.close();
+  }
+});
+
+test("scheduled history reconciliation repairs a wrong paymentId claim left behind by an interrupted return handler", async () => {
+  const database = new DatabaseSync(":memory:");
+  applyMigrations(database);
+  const d1 = new SqliteD1(database);
+  (globalThis as typeof globalThis & { __SITES_ENV__?: unknown }).__SITES_ENV__ = naverCheckoutEnv(d1);
+  seedReservation(database, "crash1", "slot-crash-wrong", "ready", 630);
+  seedReservation(database, "crash2", "slot-crash-right", "ready", 750);
+  database.prepare("UPDATE reservations SET payment_provider='naverpay', payment_tax_scope_amount=44000 WHERE id IN ('crash1','crash2')").run();
+  database.prepare("UPDATE reservations SET payment_status='confirming', payment_key='npay_crash2', payment_provider_checked_at=0, updated_at='2026-08-15 00:00:00' WHERE id='crash1'").run();
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    if (String(input).endsWith("/v2.3/list/history/npay_crash2")) {
+      return Response.json({
+        code: "Success",
+        body: { list: [{
+          paymentId: "npay_crash2",
+          merchantPayKey: "CTP_crash2",
+          admissionTypeCode: "01",
+          admissionState: "SUCCESS",
+          admissionYmdt: "20260815140000",
+          totalPayAmount: 44_000,
+          taxScopeAmount: 44_000,
+          taxExScopeAmount: 0,
+          primaryPayMeans: "CARD",
+          npointPayAmount: 0,
+        }] },
+      });
+    }
+    return Response.json({ code: "NotFound" }, { status: 404 });
+  };
+  try {
+    await reconcileRecentProviderPayments(Date.now(), 10);
+    const wrong = database.prepare("SELECT payment_status,payment_key FROM reservations WHERE id='crash1'").get() as Record<string, unknown>;
+    const right = database.prepare("SELECT payment_status,payment_key FROM reservations WHERE id='crash2'").get() as Record<string, unknown>;
+    assert.equal(wrong.payment_status, "ready");
+    assert.equal(wrong.payment_key, null);
+    assert.equal(right.payment_status, "paid");
+    assert.equal(right.payment_key, "npay_crash2");
+  } finally {
+    globalThis.fetch = originalFetch;
+    database.close();
+  }
+});
+
+test("scheduled Naver reconciliation sends an approved amount mismatch to owner review", async () => {
+  const database = new DatabaseSync(":memory:");
+  applyMigrations(database);
+  const d1 = new SqliteD1(database);
+  (globalThis as typeof globalThis & { __SITES_ENV__?: unknown }).__SITES_ENV__ = naverCheckoutEnv(d1);
+  seedReservation(database, "crashm1", "slot-crash-amount", "ready", 630);
+  database.prepare("UPDATE reservations SET payment_provider='naverpay', payment_tax_scope_amount=44000, payment_status='confirming', payment_key='npay_crashm1', payment_provider_checked_at=0, updated_at='2026-08-15 00:00:00' WHERE id='crashm1'").run();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({ code: "Success", body: { list: [{
+    paymentId: "npay_crashm1",
+    merchantPayKey: "CTP_crashm1",
+    admissionTypeCode: "01",
+    admissionState: "SUCCESS",
+    admissionYmdt: "20260815140000",
+    totalPayAmount: 43_000,
+    taxScopeAmount: 43_000,
+    taxExScopeAmount: 0,
+    primaryPayMeans: "CARD",
+    npointPayAmount: 0,
+  }] } });
+  try {
+    await reconcileRecentProviderPayments(Date.now(), 10);
+    const row = database.prepare("SELECT status,payment_status,payment_failure_code FROM reservations WHERE id='crashm1'").get() as Record<string, unknown>;
+    assert.equal(row.status, "confirmed");
+    assert.equal(row.payment_status, "review_required");
+    assert.equal(row.payment_failure_code, "PAYMENT_VERIFICATION_FAILED");
+    assert.equal(database.prepare("SELECT COUNT(*) count FROM owner_alerts WHERE reservation_id='crashm1' AND type='payment.review_required'").get()?.count, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    database.close();
+  }
+});
+
+test("a Naver 200 response without a success code remains reviewable instead of becoming a false failed booking", async () => {
+  const database = new DatabaseSync(":memory:");
+  applyMigrations(database);
+  const d1 = new SqliteD1(database);
+  (globalThis as typeof globalThis & { __SITES_ENV__?: unknown }).__SITES_ENV__ = naverCheckoutEnv(d1);
+  seedReservation(database, "badjson", "slot-bad-json");
+  database.prepare("UPDATE reservations SET payment_provider='naverpay', payment_tax_scope_amount=44000 WHERE id='badjson'").run();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({});
+  try {
+    const state = "badjson".repeat(64).slice(0, 64);
+    await assert.rejects(() => confirmReservationPayment({ state, paymentKey: "npay_badjson" }), /PAYMENT_PROCESSING/);
+    const row = database.prepare("SELECT status,payment_status,payment_failure_code FROM reservations WHERE id='badjson'").get() as Record<string, unknown>;
+    assert.equal(row.status, "confirmed");
+    assert.equal(row.payment_status, "review_required");
+    assert.equal(row.payment_failure_code, "NAVER_PAY_API_ERROR");
+  } finally {
+    globalThis.fetch = originalFetch;
+    database.close();
+  }
+});
+
+test("a Naver approval with a mismatched amount remains reviewable instead of becoming paid or failed", async () => {
+  const database = new DatabaseSync(":memory:");
+  applyMigrations(database);
+  const d1 = new SqliteD1(database);
+  (globalThis as typeof globalThis & { __SITES_ENV__?: unknown }).__SITES_ENV__ = naverCheckoutEnv(d1);
+  seedReservation(database, "amount1", "slot-amount-mismatch");
+  database.prepare("UPDATE reservations SET payment_provider='naverpay', payment_tax_scope_amount=44000 WHERE id='amount1'").run();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({
+    code: "Success",
+    body: {
+      paymentId: "npay_amount1",
+      detail: {
+        paymentId: "npay_amount1",
+        merchantPayKey: "CTP_amount1",
+        admissionTypeCode: "01",
+        admissionState: "SUCCESS",
+        admissionYmdt: "20260815140000",
+        totalPayAmount: 43_000,
+        taxScopeAmount: 43_000,
+        taxExScopeAmount: 0,
+        primaryPayMeans: "CARD",
+        npointPayAmount: 0,
+      },
+    },
+  });
+  try {
+    const state = "amount1".repeat(64).slice(0, 64);
+    await assert.rejects(() => confirmReservationPayment({ state, paymentKey: "npay_amount1" }), /PAYMENT_VERIFICATION_FAILED/);
+    const row = database.prepare("SELECT status,payment_status,paid_amount,payment_failure_code FROM reservations WHERE id='amount1'").get() as Record<string, unknown>;
+    assert.equal(row.status, "confirmed");
+    assert.equal(row.payment_status, "review_required");
+    assert.equal(row.paid_amount, 0);
+    assert.equal(row.payment_failure_code, "PAYMENT_VERIFICATION_FAILED");
+  } finally {
+    globalThis.fetch = originalFetch;
+    database.close();
+  }
+});
+
+test("Naver history rejects mixed payment identities", async () => {
+  const database = new DatabaseSync(":memory:");
+  applyMigrations(database);
+  const d1 = new SqliteD1(database);
+  (globalThis as typeof globalThis & { __SITES_ENV__?: unknown }).__SITES_ENV__ = naverCheckoutEnv(d1);
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({ code: "Success", body: { list: [{
+    paymentId: "another_payment",
+    merchantPayKey: "CTP_history1",
+    admissionTypeCode: "01",
+    admissionState: "SUCCESS",
+    admissionYmdt: "20260815140000",
+    totalPayAmount: 44_000,
+    taxScopeAmount: 44_000,
+    taxExScopeAmount: 0,
+    primaryPayMeans: "CARD",
+    npointPayAmount: 0,
+  }] } });
+  try {
+    await assert.rejects(() => getNaverPayment("npay_history1"), (error: unknown) => Boolean(
+      error && typeof error === "object" && "code" in error && error.code === "NAVER_PAY_INVALID_RESPONSE",
+    ));
+  } finally {
+    globalThis.fetch = originalFetch;
+    database.close();
+  }
+});
+
+test("a Naver cancellation history tax mismatch stays locked for review", async () => {
+  const database = new DatabaseSync(":memory:");
+  applyMigrations(database);
+  const d1 = new SqliteD1(database);
+  (globalThis as typeof globalThis & { __SITES_ENV__?: unknown }).__SITES_ENV__ = naverCheckoutEnv(d1);
+  seedReservation(database, "taxcan1", "slot-tax-cancel", "paid");
+  database.prepare("UPDATE reservations SET payment_provider='naverpay', payment_tax_scope_amount=44000, payment_tax_ex_scope_amount=0, payment_key='npay_taxcan1' WHERE id='taxcan1'").run();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    const url = String(input);
+    if (url.endsWith("/v1/cancel")) return Response.json({ code: "AlreadyCanceled", message: "already canceled" });
+    if (url.endsWith("/v2.3/list/history/npay_taxcan1")) return Response.json({ code: "Success", body: { list: [
+      {
+        paymentId: "npay_taxcan1",
+        merchantPayKey: "CTP_taxcan1",
+        admissionTypeCode: "01",
+        admissionState: "SUCCESS",
+        admissionYmdt: "20260815140000",
+        totalPayAmount: 44_000,
+        taxScopeAmount: 44_000,
+        taxExScopeAmount: 0,
+        primaryPayMeans: "CARD",
+        npointPayAmount: 0,
+      },
+      {
+        paymentId: "npay_taxcan1",
+        merchantPayKey: "CTP_taxcan1",
+        admissionTypeCode: "03",
+        admissionState: "SUCCESS",
+        admissionYmdt: "20260815150000",
+        totalPayAmount: 44_000,
+        taxScopeAmount: 0,
+        taxExScopeAmount: 44_000,
+        primaryPayMeans: "CARD",
+      },
+    ] } });
+    return Response.json({ code: "NotFound" }, { status: 404 });
+  };
+  try {
+    await assert.rejects(() => refundReservationPayment("taxcan1", "과세 검증", "1"), /PAYMENT_REFUND_VERIFICATION_FAILED/);
+    const row = database.prepare("SELECT status,payment_status,payment_failure_code FROM reservations WHERE id='taxcan1'").get() as Record<string, unknown>;
+    assert.equal(row.status, "confirmed");
+    assert.equal(row.payment_status, "refund_processing");
+    assert.equal(row.payment_failure_code, "PAYMENT_PROVIDER_ERROR");
+  } finally {
+    globalThis.fetch = originalFetch;
+    database.close();
+  }
+});
+
+test("daily Naver history reconciliation discovers payments by period and runs once per KST day", async () => {
+  const database = new DatabaseSync(":memory:");
+  applyMigrations(database);
+  const d1 = new SqliteD1(database);
+  (globalThis as typeof globalThis & { __SITES_ENV__?: unknown }).__SITES_ENV__ = naverCheckoutEnv(d1);
+  seedReservation(database, "daily1", "slot-daily");
+  database.prepare("UPDATE reservations SET payment_provider='naverpay', payment_tax_scope_amount=44000 WHERE id='daily1'").run();
+
+  let providerCalls = 0;
+  let periodBody = "";
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    providerCalls += 1;
+    const url = String(input);
+    if (url.endsWith("/v2.3/list/history")) {
+      periodBody = String(init?.body || "");
+      return Response.json({ code: "Success", body: { list: [{ paymentId: "npay_daily1" }], totalPageCount: 1 } });
+    }
+    if (url.endsWith("/v2.3/list/history/npay_daily1")) {
+      return Response.json({
+        code: "Success",
+        body: {
+          list: [{
+            paymentId: "npay_daily1",
+            merchantPayKey: "CTP_daily1",
+            admissionTypeCode: "01",
+            admissionState: "SUCCESS",
+            admissionYmdt: "20260815140000",
+            totalPayAmount: 44_000,
+            taxScopeAmount: 44_000,
+            taxExScopeAmount: 0,
+            primaryPayMeans: "CARD",
+            npointPayAmount: 0,
+          }],
+        },
+      });
+    }
+    return Response.json({ code: "NotFound" }, { status: 404 });
+  };
+  try {
+    const now = Date.UTC(2026, 7, 15, 6, 0, 0);
+    assert.deepEqual(await reconcileDailyNaverPayments(now, 2), { scanned: 1, failed: 0, skipped: false });
+    assert.equal(JSON.parse(periodBody).endTime, "20260815145700");
+    assert.equal(database.prepare("SELECT payment_status,payment_key FROM reservations WHERE id='daily1'").get()?.payment_status, "paid");
+    assert.deepEqual(await reconcileDailyNaverPayments(now + 60_000, 2), { scanned: 0, skipped: true });
+    assert.equal(providerCalls, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+    database.close();
+  }
+});
+
+test("a failed daily Naver history request releases its lock for a same-day retry", async () => {
+  const database = new DatabaseSync(":memory:");
+  applyMigrations(database);
+  const d1 = new SqliteD1(database);
+  (globalThis as typeof globalThis & { __SITES_ENV__?: unknown }).__SITES_ENV__ = naverCheckoutEnv(d1);
+  let fail = true;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    if (fail) throw new Error("temporary history failure");
+    return Response.json({ code: "Success", body: { list: [], totalPageCount: 1 } });
+  };
+  try {
+    const now = Date.UTC(2026, 7, 17, 6, 0, 0);
+    await assert.rejects(() => reconcileDailyNaverPayments(now, 1), (error: unknown) => Boolean(error && typeof error === "object" && "code" in error && error.code === "NAVER_PAY_NETWORK_ERROR"));
+    assert.equal(database.prepare("SELECT COUNT(*) count FROM rate_limits WHERE bucket_key LIKE 'system:naverpay:daily:%'").get()?.count, 0);
+    fail = false;
+    assert.deepEqual(await reconcileDailyNaverPayments(now + 60_000, 1), { scanned: 0, failed: 0, skipped: false });
+  } finally {
+    globalThis.fetch = originalFetch;
+    database.close();
+  }
+});
+
+test("daily reconciliation durably retries a failed refund for a second Naver paymentId", async () => {
+  const database = new DatabaseSync(":memory:");
+  applyMigrations(database);
+  const d1 = new SqliteD1(database);
+  (globalThis as typeof globalThis & { __SITES_ENV__?: unknown }).__SITES_ENV__ = naverCheckoutEnv(d1);
+  seedReservation(database, "dupe01", "slot-dupe", "paid");
+  database.prepare("UPDATE reservations SET payment_provider='naverpay', payment_tax_scope_amount=44000, payment_key='npay_primary' WHERE id='dupe01'").run();
+
+  let cancelPaymentId = "";
+  let periodCalls = 0;
+  let cancelCalls = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (url.endsWith("/v2.3/list/history")) {
+      periodCalls += 1;
+      return Response.json({ code: "Success", body: { list: periodCalls === 1 ? [{ paymentId: "npay_duplicate" }] : [], totalPageCount: 1 } });
+    }
+    if (url.endsWith("/v2.3/list/history/npay_duplicate")) {
+      return Response.json({ code: "Success", body: { list: [{
+        paymentId: "npay_duplicate",
+        merchantPayKey: "CTP_dupe01",
+        admissionTypeCode: "01",
+        admissionState: "SUCCESS",
+        admissionYmdt: "20260815140000",
+        totalPayAmount: 44_000,
+        taxScopeAmount: 44_000,
+        taxExScopeAmount: 0,
+        primaryPayMeans: "CARD",
+        npointPayAmount: 0,
+      }] } });
+    }
+    if (url.endsWith("/v1/cancel")) {
+      cancelCalls += 1;
+      cancelPaymentId = new URLSearchParams(String(init?.body || "")).get("paymentId") || "";
+      if (cancelCalls === 1) throw new Error("temporary cancel failure");
+      return Response.json({ code: "Success", body: {
+        paymentId: "npay_duplicate",
+        primaryPayMeans: "CARD",
+        primaryPayCancelAmount: 44_000,
+        npointCancelAmount: 0,
+        giftCardCancelAmount: 0,
+        discountCancelAmount: 0,
+        taxScopeAmount: 44_000,
+        taxExScopeAmount: 0,
+        totalRestAmount: 0,
+        cancelYmdt: "20260815141000",
+      } });
+    }
+    return Response.json({ code: "NotFound" }, { status: 404 });
+  };
+  try {
+    const now = Date.UTC(2026, 7, 16, 6, 0, 0);
+    assert.deepEqual(await reconcileDailyNaverPayments(now, 1), { scanned: 1, failed: 1, skipped: false });
+    assert.equal(database.prepare("SELECT action FROM admin_audit_logs WHERE entity_id='npay_duplicate' ORDER BY id DESC LIMIT 1").get()?.action, "naver_payment_refund_pending");
+    assert.equal(database.prepare("SELECT COUNT(*) count FROM rate_limits WHERE bucket_key LIKE 'system:naverpay:daily:%'").get()?.count, 0);
+    assert.deepEqual(await reconcileDailyNaverPayments(now + 60_000, 1), { scanned: 1, failed: 0, skipped: false });
+    assert.equal(cancelPaymentId, "npay_duplicate");
+    assert.equal(cancelCalls, 2);
+    assert.equal(database.prepare("SELECT payment_key,payment_status FROM reservations WHERE id='dupe01'").get()?.payment_key, "npay_primary");
+    assert.equal(database.prepare("SELECT action FROM admin_audit_logs WHERE entity_id='npay_duplicate' ORDER BY id DESC LIMIT 1").get()?.action, "naver_payment_refund_resolved");
+  } finally {
+    globalThis.fetch = originalFetch;
+    database.close();
+  }
+});
+
 test("Origin null is rejected and streamed JSON bodies stop at the byte limit", async () => {
   assert.equal(isPublicWebOriginAllowed(new Request("https://example.com/api", { headers: { origin: "null" } })), false);
   assert.equal(isPublicWebOriginAllowed(new Request("https://example.com/api")), true);
@@ -228,14 +884,7 @@ test("overlapping manual reservations close public slots and a concurrent closur
   const database = new DatabaseSync(":memory:");
   applyMigrations(database);
   const d1 = new SqliteD1(database);
-  (globalThis as typeof globalThis & { __SITES_ENV__?: unknown }).__SITES_ENV__ = {
-    DB: d1,
-    TOSS_CLIENT_KEY: ["test", "gck", "unit"].join("_"),
-    TOSS_SECRET_KEY: ["test", "gsk", "unit"].join("_"),
-    BOOKING_DATA_KEY: "unit-test-booking-data-key-32-bytes-minimum",
-    BOOKING_LOOKUP_PEPPER: "unit-test-booking-lookup-pepper-32-bytes-minimum",
-    ALLOW_PUBLIC_TEST_PAYMENTS: "1",
-  };
+  (globalThis as typeof globalThis & { __SITES_ENV__?: unknown }).__SITES_ENV__ = naverCheckoutEnv(d1);
   const date = addDays(kstDateKey(), 2);
   const weekday = weekdayKst(date);
   database.prepare("INSERT INTO themes (id, slug, name, short_name, genre, synopsis, duration_min, turnover_min, prices_json) VALUES ('race', 'race', '레이스', '레이스', '테스트', '테스트', 60, 30, '{\"2\":44000}')").run();
@@ -261,9 +910,9 @@ test("overlapping manual reservations close public slots and a concurrent closur
       partySize: 2,
       name: "테스트손님",
       phone: "01012345678",
-      consentVersion: "2026-08-13",
-      termsVersion: "2026-08-15",
-      refundPolicyVersion: "2026-08-15",
+      consentVersion: "2026-08-15-npay",
+      termsVersion: "2026-08-15-npay",
+      refundPolicyVersion: "2026-08-15-npay",
       consentAccepted: true,
       termsAccepted: true,
       refundPolicyAccepted: true,
@@ -345,14 +994,7 @@ test("checkout requires affirmative policy attestations and snapshots the accept
   const database = new DatabaseSync(":memory:");
   applyMigrations(database);
   const d1 = new SqliteD1(database);
-  (globalThis as typeof globalThis & { __SITES_ENV__?: unknown }).__SITES_ENV__ = {
-    DB: d1,
-    TOSS_CLIENT_KEY: ["test", "gck", "unit"].join("_"),
-    TOSS_SECRET_KEY: ["test", "gsk", "unit"].join("_"),
-    BOOKING_DATA_KEY: "unit-test-booking-data-key-32-bytes-minimum",
-    BOOKING_LOOKUP_PEPPER: "unit-test-booking-lookup-pepper-32-bytes-minimum",
-    ALLOW_PUBLIC_TEST_PAYMENTS: "1",
-  };
+  (globalThis as typeof globalThis & { __SITES_ENV__?: unknown }).__SITES_ENV__ = naverCheckoutEnv(d1);
   const date = addDays(kstDateKey(), 3);
   const weekday = weekdayKst(date);
   database.prepare("INSERT INTO themes (id, slug, name, short_name, genre, synopsis, duration_min, turnover_min, prices_json) VALUES ('policy', 'policy', '정책 테스트', '정책', '테스트', '테스트', 60, 30, '{\"2\":44000}')").run();
@@ -362,9 +1004,9 @@ test("checkout requires affirmative policy attestations and snapshots the accept
     partySize: 2,
     name: "정책손님",
     phone: "01012345678",
-    consentVersion: "2026-08-13",
-    termsVersion: "2026-08-15",
-    refundPolicyVersion: "2026-08-15",
+    consentVersion: "2026-08-15-npay",
+    termsVersion: "2026-08-15-npay",
+    refundPolicyVersion: "2026-08-15-npay",
   };
   const request = (body: Record<string, unknown>, ip: string) => new Request("https://backend.example/api/public/payments/checkout", {
     method: "POST",
@@ -385,12 +1027,56 @@ test("checkout requires affirmative policy attestations and snapshots the accept
   }, "127.0.0.22"));
   assert.equal(accepted.status, 201);
   const snapshot = database.prepare("SELECT consent_version, terms_version, refund_policy_version, cancel_cutoff_minutes_snapshot, payment_notice_waived, policy_accepted_at FROM reservations WHERE request_id = '27fa0db9-a390-4dce-a441-30f69a6f7002'").get() as Record<string, unknown>;
-  assert.equal(snapshot.consent_version, "2026-08-13");
-  assert.equal(snapshot.terms_version, "2026-08-15");
-  assert.equal(snapshot.refund_policy_version, "2026-08-15");
+  assert.equal(snapshot.consent_version, "2026-08-15-npay");
+  assert.equal(snapshot.terms_version, "2026-08-15-npay");
+  assert.equal(snapshot.refund_policy_version, "2026-08-15-npay");
   assert.equal(snapshot.cancel_cutoff_minutes_snapshot, 1440);
   assert.equal(snapshot.payment_notice_waived, 0);
   assert.ok(snapshot.policy_accepted_at);
+  database.close();
+});
+
+test("checkout keeps legacy Toss active until Naver Pay is explicitly enabled", async () => {
+  const database = new DatabaseSync(":memory:");
+  applyMigrations(database);
+  const d1 = new SqliteD1(database);
+  (globalThis as typeof globalThis & { __SITES_ENV__?: unknown }).__SITES_ENV__ = {
+    DB: d1,
+    TOSS_CLIENT_KEY: ["test", "gck", "unit"].join("_"),
+    TOSS_SECRET_KEY: ["test", "gsk", "unit"].join("_"),
+    ALLOW_PUBLIC_TEST_PAYMENTS: "1",
+    BOOKING_DATA_KEY: "unit-test-booking-data-key-32-bytes-minimum",
+    BOOKING_LOOKUP_PEPPER: "unit-test-booking-lookup-pepper-32-bytes-minimum",
+  };
+  const date = addDays(kstDateKey(), 4);
+  const weekday = weekdayKst(date);
+  database.prepare("INSERT INTO themes (id, slug, name, short_name, genre, synopsis, duration_min, turnover_min, prices_json) VALUES ('toss-safe', 'toss-safe', '토스 안전 전환', '안전', '테스트', '테스트', 60, 30, '{\"2\":44000}')").run();
+  database.prepare("INSERT INTO schedule_rules (theme_id, weekday, start_minute) VALUES ('toss-safe', ?, 630)").run(weekday);
+  const response = await checkoutPayment(new Request("https://backend.example/api/public/payments/checkout", {
+    method: "POST",
+    headers: { origin: "https://sosirusok.github.io", "content-type": "application/json", "cf-connecting-ip": "127.0.0.23" },
+    body: JSON.stringify({
+      slotId: `slot_toss-safe_${date.replaceAll("-", "")}_630`,
+      partySize: 2,
+      name: "안전전환",
+      phone: "01012345678",
+      consentVersion: "2026-08-15-npay",
+      termsVersion: "2026-08-15-npay",
+      refundPolicyVersion: "2026-08-15-npay",
+      consentAccepted: true,
+      termsAccepted: true,
+      refundPolicyAccepted: true,
+      requestId: "27fa0db9-a390-4dce-a441-30f69a6f7003",
+    }),
+  }));
+  assert.equal(response.status, 201);
+  const body = await response.json();
+  assert.equal(body.payment.provider, "toss");
+  assert.deepEqual(paymentServiceStatus(), { configured: true, provider: "toss", mode: "test", complianceReady: true });
+  const row = database.prepare("SELECT payment_provider,payment_tax_scope_amount,payment_tax_ex_scope_amount FROM reservations WHERE request_id='27fa0db9-a390-4dce-a441-30f69a6f7003'").get() as Record<string, unknown>;
+  assert.equal(row.payment_provider, "toss");
+  assert.equal(row.payment_tax_scope_amount, 0);
+  assert.equal(row.payment_tax_ex_scope_amount, 0);
   database.close();
 });
 

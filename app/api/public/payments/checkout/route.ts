@@ -26,6 +26,7 @@ import {
   PAYMENT_HOLD_MS,
   type PaymentReservationRow,
 } from "@/lib/payment-flow";
+import { activeNaverPayConfig, naverPayConfig } from "@/lib/naver-payments";
 import { tossConfig } from "@/lib/toss-payments";
 import { merchantComplianceMissing } from "@/lib/store-policy";
 
@@ -56,25 +57,64 @@ type ThemeRow = {
   status: string;
 };
 
+function activeCheckoutConfig() {
+  const provider = runtimeEnv().PAYMENT_PROVIDER || "toss";
+  if (provider === "naverpay") return { provider, ...activeNaverPayConfig() } as const;
+  if (provider === "toss") return { provider, ...tossConfig() } as const;
+  throw new Error("PAYMENT_PROVIDER_DISABLED");
+}
+
 function checkoutResponse(request: Request, row: PaymentReservationRow, themeName: string) {
-  const { clientKey, mode } = tossConfig();
   const origin = new URL(request.url).origin;
-  const success = new URL("/api/public/payments/toss/success", origin);
-  const fail = new URL("/api/public/payments/toss/fail", origin);
-  success.searchParams.set("state", String(row.payment_state));
-  fail.searchParams.set("state", String(row.payment_state));
+  if (row.payment_provider === "toss") {
+    const { clientKey, mode } = tossConfig();
+    const success = new URL("/api/public/payments/toss/success", origin);
+    const fail = new URL("/api/public/payments/toss/fail", origin);
+    success.searchParams.set("state", String(row.payment_state));
+    fail.searchParams.set("state", String(row.payment_state));
+    return {
+      ok: true,
+      payment: {
+        provider: "toss",
+        clientKey,
+        mode,
+        orderId: row.payment_order_id,
+        state: row.payment_state,
+        orderName: themeName.length > 90 ? `${themeName.slice(0, 87)}...` : themeName,
+        amount: row.price_total,
+        expiresAt: row.payment_expires_at,
+        successUrl: success.toString(),
+        failUrl: fail.toString(),
+      },
+    };
+  }
+  const { clientId, chainId, mode } = naverPayConfig();
+  const returnUrl = new URL("/api/public/payments/naver/return", origin);
+  returnUrl.searchParams.set("state", String(row.payment_state));
   return {
     ok: true,
     payment: {
-      clientKey,
+      provider: "naverpay",
+      clientId,
+      chainId,
       mode,
       orderId: row.payment_order_id,
       state: row.payment_state,
-      orderName: themeName.length > 90 ? `${themeName.slice(0, 87)}...` : themeName,
+      orderName: themeName.length > 120 ? `${themeName.slice(0, 117)}...` : themeName,
       amount: row.price_total,
+      taxScopeAmount: row.payment_tax_scope_amount,
+      taxExScopeAmount: row.payment_tax_ex_scope_amount,
       expiresAt: row.payment_expires_at,
-      successUrl: success.toString(),
-      failUrl: fail.toString(),
+      returnUrl: returnUrl.toString(),
+      productItems: [{
+        categoryType: "ETC",
+        categoryId: "ETC",
+        uid: String(row.payment_order_id),
+        name: themeName,
+        startDate: row.service_date.replaceAll("-", ""),
+        endDate: row.service_date.replaceAll("-", ""),
+        count: 1,
+      }],
     },
   };
 }
@@ -83,14 +123,15 @@ export async function POST(request: Request) {
   if (!sameOrigin(request)) return publicError("INVALID_ORIGIN", "요청을 확인할 수 없습니다.", 403);
   if (!isJsonRequest(request)) return publicError("INVALID_CONTENT_TYPE", "요청 형식을 확인해 주세요.", 415);
   try {
-    const config = tossConfig();
-    if (config.mode === "test" && runtimeEnv().ALLOW_PUBLIC_TEST_PAYMENTS !== "1") {
-      return publicError("PAYMENT_UNAVAILABLE", "현재 온라인 카드결제를 이용할 수 없습니다.", 503);
+    const config = activeCheckoutConfig();
+    const isTestMode = (config.provider === "naverpay" && config.mode === "development") || (config.provider === "toss" && config.mode === "test");
+    if (isTestMode && runtimeEnv().ALLOW_PUBLIC_TEST_PAYMENTS !== "1") {
+      return publicError("PAYMENT_UNAVAILABLE", "현재 온라인 결제를 이용할 수 없습니다.", 503);
     }
     if (!(await enforceRateLimit(request, "checkout", 8, 600))) return publicError("RATE_LIMITED", "잠시 후 다시 시도해 주세요.", 429);
   } catch (error) {
-    if (error instanceof Error && ["TOSS_PAYMENT_UNAVAILABLE", "TOSS_PAYMENT_KEY_MISMATCH"].includes(error.message)) {
-      return publicError("PAYMENT_UNAVAILABLE", "현재 카드결제를 이용할 수 없습니다. 잠시 후 다시 시도해 주세요.", 503);
+    if (error instanceof Error && /^(NAVER_PAY_|TOSS_PAYMENT_|PAYMENT_PROVIDER_)/.test(error.message)) {
+      return publicError("PAYMENT_UNAVAILABLE", "현재 온라인 결제를 이용할 수 없습니다. 잠시 후 다시 시도해 주세요.", 503);
     }
     return publicError("SERVICE_ERROR", "결제를 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.", 500);
   }
@@ -121,9 +162,10 @@ export async function POST(request: Request) {
     const db = getD1();
     await expirePaymentHolds();
     const settings = await getSettings(db);
-    const config = tossConfig();
-    if (config.mode === "live" && merchantComplianceMissing(settings).length) {
-      return publicError("PAYMENT_UNAVAILABLE", "현재 온라인 카드결제를 이용할 수 없습니다.", 503);
+    const config = activeCheckoutConfig();
+    const isProduction = (config.provider === "naverpay" && config.mode === "production") || (config.provider === "toss" && config.mode === "live");
+    if (isProduction && merchantComplianceMissing(settings).length) {
+      return publicError("PAYMENT_UNAVAILABLE", "현재 온라인 결제를 이용할 수 없습니다.", 503);
     }
     if (!settings.bookingOpen) return publicError("BOOKING_PAUSED", settings.pausedMessage, 409);
     if (consentVersion !== settings.consentVersion || termsVersion !== settings.termsVersion || refundPolicyVersion !== settings.refundPolicyVersion) {
@@ -134,7 +176,7 @@ export async function POST(request: Request) {
       slotId, partySize, name, phone, consentVersion, termsVersion, refundPolicyVersion,
       consentAccepted: true, termsAccepted: true, refundPolicyAccepted: true,
     });
-    const existing = await db.prepare("SELECT id, booking_code, request_id, request_fingerprint, slot_id, theme_name_snapshot, service_date, start_minute, duration_min, party_size, price_total, status, payment_status, payment_order_id, payment_state, payment_key, payment_expires_at, payment_result_expires_at, paid_amount FROM reservations WHERE request_id = ? LIMIT 1")
+    const existing = await db.prepare("SELECT id, booking_code, request_id, request_fingerprint, slot_id, theme_name_snapshot, service_date, start_minute, duration_min, party_size, price_total, status, payment_status, payment_provider, payment_tax_scope_amount, payment_tax_ex_scope_amount, payment_refund_requester, payment_order_id, payment_state, payment_key, payment_expires_at, payment_result_expires_at, paid_amount FROM reservations WHERE request_id = ? LIMIT 1")
       .bind(requestId).first<PaymentReservationRow>();
     if (existing) {
       if (existing.request_fingerprint !== fingerprint) return publicError("REQUEST_REUSED", "예약 정보를 새로 확인해 주세요.", 409);
@@ -180,18 +222,20 @@ export async function POST(request: Request) {
     const paymentState = createPaymentState();
     const paymentExpiresAt = Date.now() + PAYMENT_HOLD_MS;
     const policyAcceptedAt = new Date().toISOString();
+    const paymentTaxScopeAmount = config.provider === "naverpay" && config.taxScope === "taxable" ? priceTotal : 0;
+    const paymentTaxExScopeAmount = config.provider === "naverpay" && config.taxScope === "tax_exempt" ? priceTotal : 0;
     const [nameEnc, phoneEnc, phoneDigest] = await Promise.all([encryptPrivate(name), encryptPrivate(phone), phoneHash(phone)]);
 
     try {
       await db.batch([
         db.prepare("INSERT INTO booking_slots (id, theme_id, service_date, start_minute, start_at_utc, duration_min, source) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET theme_id = excluded.theme_id, service_date = excluded.service_date, start_minute = excluded.start_minute, start_at_utc = excluded.start_at_utc, duration_min = excluded.duration_min, source = excluded.source WHERE NOT EXISTS (SELECT 1 FROM reservations WHERE slot_id = booking_slots.id AND status IN ('confirmed','checked_in'))")
           .bind(slotId, themeId, serviceDate, startMinute, startAtUtc, durationMin, override ? "override" : "rule"),
-        db.prepare("INSERT INTO reservations (id, booking_code, request_id, request_fingerprint, slot_id, theme_id, status, party_size, customer_name_enc, phone_enc, phone_hash, phone_last4, theme_name_snapshot, service_date, start_minute, duration_min, price_total, consent_version, terms_version, refund_policy_version, cancel_cutoff_minutes_snapshot, policy_accepted_at, payment_notice_waived, source, payment_status, payment_order_id, payment_state, payment_expires_at) SELECT ?, ?, ?, ?, ?, ?, 'confirmed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'web', 'ready', ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM closures WHERE start_date <= ? AND end_date >= ? AND (scope = 'store' OR theme_id = ?)) AND NOT EXISTS (SELECT 1 FROM slot_overrides WHERE theme_id = ? AND service_date = ? AND start_minute = ? AND action = 'block') AND (EXISTS (SELECT 1 FROM schedule_rules WHERE theme_id = ? AND weekday = ? AND start_minute = ?) OR EXISTS (SELECT 1 FROM slot_overrides WHERE theme_id = ? AND service_date = ? AND start_minute = ? AND action = 'add')) AND NOT EXISTS (SELECT 1 FROM reservations r JOIN booking_slots s ON s.id = r.slot_id WHERE r.theme_id = ? AND r.service_date = ? AND r.status IN ('confirmed','checked_in') AND s.start_minute < ? AND (s.start_minute + s.duration_min + ?) > ?)")
+        db.prepare("INSERT INTO reservations (id, booking_code, request_id, request_fingerprint, slot_id, theme_id, status, party_size, customer_name_enc, phone_enc, phone_hash, phone_last4, theme_name_snapshot, service_date, start_minute, duration_min, price_total, consent_version, terms_version, refund_policy_version, cancel_cutoff_minutes_snapshot, policy_accepted_at, payment_notice_waived, source, payment_status, payment_provider, payment_tax_scope_amount, payment_tax_ex_scope_amount, payment_order_id, payment_state, payment_expires_at) SELECT ?, ?, ?, ?, ?, ?, 'confirmed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'web', 'ready', ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM closures WHERE start_date <= ? AND end_date >= ? AND (scope = 'store' OR theme_id = ?)) AND NOT EXISTS (SELECT 1 FROM slot_overrides WHERE theme_id = ? AND service_date = ? AND start_minute = ? AND action = 'block') AND (EXISTS (SELECT 1 FROM schedule_rules WHERE theme_id = ? AND weekday = ? AND start_minute = ?) OR EXISTS (SELECT 1 FROM slot_overrides WHERE theme_id = ? AND service_date = ? AND start_minute = ? AND action = 'add')) AND NOT EXISTS (SELECT 1 FROM reservations r JOIN booking_slots s ON s.id = r.slot_id WHERE r.theme_id = ? AND r.service_date = ? AND r.status IN ('confirmed','checked_in') AND s.start_minute < ? AND (s.start_minute + s.duration_min + ?) > ?)")
           .bind(
             id, bookingCode, requestId, fingerprint, slotId, themeId, partySize, nameEnc, phoneEnc, phoneDigest,
             phone.slice(-4), theme.name, serviceDate, startMinute, durationMin, priceTotal,
             consentVersion, termsVersion, refundPolicyVersion, settings.cancelCutoffMinutes, policyAcceptedAt,
-            paymentOrderId, paymentState, paymentExpiresAt,
+            config.provider, paymentTaxScopeAmount, paymentTaxExScopeAmount, paymentOrderId, paymentState, paymentExpiresAt,
             serviceDate, serviceDate, themeId,
             themeId, serviceDate, startMinute,
             themeId, weekday, startMinute,
@@ -203,7 +247,7 @@ export async function POST(request: Request) {
       ]);
     } catch (error) {
       if (isUniqueError(error)) {
-        const duplicate = await db.prepare("SELECT id, booking_code, request_id, request_fingerprint, slot_id, theme_name_snapshot, service_date, start_minute, duration_min, party_size, price_total, status, payment_status, payment_order_id, payment_state, payment_key, payment_expires_at, payment_result_expires_at, paid_amount FROM reservations WHERE request_id = ? LIMIT 1").bind(requestId).first<PaymentReservationRow>();
+        const duplicate = await db.prepare("SELECT id, booking_code, request_id, request_fingerprint, slot_id, theme_name_snapshot, service_date, start_minute, duration_min, party_size, price_total, status, payment_status, payment_provider, payment_tax_scope_amount, payment_tax_ex_scope_amount, payment_refund_requester, payment_order_id, payment_state, payment_key, payment_expires_at, payment_result_expires_at, paid_amount FROM reservations WHERE request_id = ? LIMIT 1").bind(requestId).first<PaymentReservationRow>();
         if (duplicate?.request_fingerprint === fingerprint && Number(duplicate.payment_expires_at) > Date.now()) {
           return Response.json(checkoutResponse(request, duplicate, duplicate.theme_name_snapshot), { headers: { "Cache-Control": "no-store" } });
         }
@@ -219,14 +263,16 @@ export async function POST(request: Request) {
       id, booking_code: bookingCode, request_id: requestId, request_fingerprint: fingerprint, slot_id: slotId,
       theme_name_snapshot: theme.name, service_date: serviceDate, start_minute: startMinute, duration_min: durationMin,
       party_size: partySize, price_total: priceTotal, status: "confirmed", payment_status: "ready",
+      payment_provider: config.provider, payment_tax_scope_amount: paymentTaxScopeAmount, payment_tax_ex_scope_amount: paymentTaxExScopeAmount,
+      payment_refund_requester: "2",
       payment_order_id: paymentOrderId, payment_state: paymentState, payment_key: null,
       payment_expires_at: paymentExpiresAt, payment_result_expires_at: null, paid_amount: 0,
       receipt_url: "", payment_provider_checked_at: 0,
     };
     return Response.json(checkoutResponse(request, row, theme.name), { status: 201, headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    if (error instanceof Error && ["TOSS_PAYMENT_UNAVAILABLE", "TOSS_PAYMENT_KEY_MISMATCH"].includes(error.message)) {
-      return publicError("PAYMENT_UNAVAILABLE", "현재 카드결제를 이용할 수 없습니다. 잠시 후 다시 시도해 주세요.", 503);
+    if (error instanceof Error && /^(NAVER_PAY_|TOSS_PAYMENT_|PAYMENT_PROVIDER_)/.test(error.message)) {
+      return publicError("PAYMENT_UNAVAILABLE", "현재 온라인 결제를 이용할 수 없습니다. 잠시 후 다시 시도해 주세요.", 503);
     }
     return publicError("SERVICE_ERROR", "결제를 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.", 500);
   }

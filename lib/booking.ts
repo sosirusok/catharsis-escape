@@ -11,6 +11,12 @@ export type RuntimeEnv = {
   ADMIN_SESSION_SECRET?: string;
   BOOKING_DATA_KEY?: string;
   BOOKING_LOOKUP_PEPPER?: string;
+  NAVER_PAY_CLIENT_ID?: string;
+  NAVER_PAY_CLIENT_SECRET?: string;
+  NAVER_PAY_CHAIN_ID?: string;
+  NAVER_PAY_MODE?: string;
+  NAVER_PAY_TAX_SCOPE?: string;
+  PAYMENT_PROVIDER?: string;
   TOSS_CLIENT_KEY?: string;
   TOSS_SECRET_KEY?: string;
   ALLOW_PUBLIC_TEST_PAYMENTS?: string;
@@ -272,8 +278,8 @@ export async function getSettings(db = getD1()): Promise<BookingSettingsRecord> 
     leadMinutes: Number(row.lead_minutes),
     cancelCutoffMinutes: Number(row.cancel_cutoff_minutes),
     consentVersion: String(row.consent_version),
-    termsVersion: String(row.terms_version || "2026-08-15"),
-    refundPolicyVersion: String(row.refund_policy_version || "2026-08-15"),
+    termsVersion: String(row.terms_version || "2026-08-15-npay"),
+    refundPolicyVersion: String(row.refund_policy_version || "2026-08-15-npay"),
     bookingOpen: Number(row.booking_open) === 1,
     pausedMessage: String(row.paused_message),
     storePhone: String(row.store_phone),

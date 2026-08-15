@@ -9,7 +9,7 @@ import {
   readJsonBody,
   sameOrigin,
 } from "@/lib/booking";
-import { safeTossReceiptUrl } from "@/lib/store-policy";
+import { safePaymentReceiptUrl } from "@/lib/store-policy";
 
 export const dynamic = "force-dynamic";
 
@@ -54,7 +54,7 @@ export async function POST(request: Request) {
       partySize: row.party_size,
       priceTotal: row.price_total,
       paymentStatus: row.payment_status,
-      receiptUrl: safeTossReceiptUrl(row.receipt_url),
+      receiptUrl: safePaymentReceiptUrl(row.receipt_url),
       createdAt: row.created_at,
     } });
   } catch {

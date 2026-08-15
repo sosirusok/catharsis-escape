@@ -32,12 +32,13 @@ export function policyEffectiveDate(version: string): string {
   return /^\d{4}-\d{2}-\d{2}$/.test(date) ? `${date.replaceAll("-", ". ")}.` : version;
 }
 
-export function safeTossReceiptUrl(value: unknown): string {
+export function safePaymentReceiptUrl(value: unknown): string {
   if (typeof value !== "string" || value.length > 2_000) return "";
   try {
     const url = new URL(value);
     const host = url.hostname.toLowerCase();
-    if (url.protocol !== "https:" || (host !== "tosspayments.com" && !host.endsWith(".tosspayments.com"))) return "";
+    const trusted = host === "tosspayments.com" || host.endsWith(".tosspayments.com") || host === "pay.naver.com" || host.endsWith(".pay.naver.com");
+    if (url.protocol !== "https:" || !trusted) return "";
     return url.toString();
   } catch {
     return "";

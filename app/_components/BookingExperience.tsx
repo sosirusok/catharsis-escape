@@ -17,7 +17,8 @@ type ReservationSummary = {
   receiptUrl?: string;
 };
 
-type PaymentCheckout = {
+type TossPaymentCheckout = {
+  provider: "toss";
   clientKey: string;
   mode: "test" | "live";
   orderId: string;
@@ -29,6 +30,24 @@ type PaymentCheckout = {
   failUrl: string;
 };
 
+type NaverPaymentCheckout = {
+  provider: "naverpay";
+  clientId: string;
+  chainId: string;
+  mode: "development" | "production";
+  orderId: string;
+  state: string;
+  orderName: string;
+  amount: number;
+  taxScopeAmount: number;
+  taxExScopeAmount: number;
+  expiresAt: number;
+  returnUrl: string;
+  productItems: Array<Record<string, unknown>>;
+};
+
+type PaymentCheckout = TossPaymentCheckout | NaverPaymentCheckout;
+
 type TossPaymentClient = {
   requestPayment(options: Record<string, unknown>): Promise<void>;
 };
@@ -36,6 +55,9 @@ type TossPaymentClient = {
 type TossPaymentsFactory = ((clientKey: string) => { payment(options: { customerKey: string }): TossPaymentClient }) & { ANONYMOUS?: string };
 
 let tossScriptPromise: Promise<TossPaymentsFactory> | null = null;
+type NaverPayClient = { open(options: Record<string, unknown>): void };
+type NaverPaySdk = { Pay: { create(options: Record<string, unknown>): NaverPayClient } };
+let naverScriptPromise: Promise<NaverPaySdk> | null = null;
 const PENDING_PAYMENT_KEY = "catharsis.pendingPayment";
 const RECENT_RESERVATION_KEY = "catharsis.recentReservation";
 
@@ -124,6 +146,26 @@ function loadTossPayments() {
   return tossScriptPromise;
 }
 
+function loadNaverPay() {
+  if (typeof window === "undefined") return Promise.reject(new Error("결제창을 열 수 없습니다."));
+  const current = (window as typeof window & { Naver?: NaverPaySdk }).Naver;
+  if (current?.Pay) return Promise.resolve(current);
+  if (naverScriptPromise) return naverScriptPromise;
+  naverScriptPromise = new Promise<NaverPaySdk>((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://nsp.pay.naver.com/sdk/js/naverpay.min.js";
+    script.async = true;
+    script.onload = () => {
+      const loaded = (window as typeof window & { Naver?: NaverPaySdk }).Naver;
+      if (loaded?.Pay) resolve(loaded);
+      else reject(new Error("네이버페이 결제창을 불러오지 못했습니다."));
+    };
+    script.onerror = () => reject(new Error("네이버페이 결제창을 불러오지 못했습니다."));
+    document.head.appendChild(script);
+  });
+  return naverScriptPromise;
+}
+
 type Props = {
   initialThemes: ThemeRecord[];
   initialSettings: BookingSettingsRecord;
@@ -165,7 +207,8 @@ function safeReceiptUrl(value?: string) {
   if (!value) return "";
   try {
     const url = new URL(value);
-    return url.protocol === "https:" && (url.hostname === "tosspayments.com" || url.hostname.endsWith(".tosspayments.com")) ? url.toString() : "";
+    const trusted = url.hostname === "tosspayments.com" || url.hostname.endsWith(".tosspayments.com") || url.hostname === "pay.naver.com" || url.hostname.endsWith(".pay.naver.com");
+    return url.protocol === "https:" && trusted ? url.toString() : "";
   } catch {
     return "";
   }
@@ -396,23 +439,44 @@ export default function BookingExperience({ initialThemes, initialSettings }: Pr
       }
       const pendingPayment = JSON.stringify({ orderId: checkout.orderId, state: checkout.state, expiresAt: checkout.expiresAt + 24 * 60 * 60_000 });
       savePendingPayment(pendingPayment);
-      const TossPayments = await loadTossPayments();
-      const payment = TossPayments(checkout.clientKey).payment({ customerKey: TossPayments.ANONYMOUS || "ANONYMOUS" });
-      await payment.requestPayment({
-        method: "CARD",
-        amount: { currency: "KRW", value: checkout.amount },
-        orderId: checkout.orderId,
-        orderName: checkout.orderName,
-        customerName: name,
-        customerMobilePhone: phone.replace(/\D/g, ""),
-        successUrl: checkout.successUrl,
-        failUrl: checkout.failUrl,
-        windowTarget: "self",
-        card: { flowMode: "DEFAULT", useEscrow: false, useCardPoint: false, useAppCardOnly: false },
-      });
+      if (checkout.provider === "naverpay") {
+        const Naver = await loadNaverPay();
+        const payment = Naver.Pay.create({
+          mode: checkout.mode,
+          payType: "normal",
+          openType: "page",
+          clientId: checkout.clientId,
+          chainId: checkout.chainId,
+        });
+        payment.open({
+          merchantPayKey: checkout.orderId,
+          productName: checkout.orderName,
+          productCount: 1,
+          totalPayAmount: checkout.amount,
+          taxScopeAmount: checkout.taxScopeAmount,
+          taxExScopeAmount: checkout.taxExScopeAmount,
+          returnUrl: checkout.returnUrl,
+          productItems: checkout.productItems,
+        });
+      } else {
+        const TossPayments = await loadTossPayments();
+        const payment = TossPayments(checkout.clientKey).payment({ customerKey: TossPayments.ANONYMOUS || "ANONYMOUS" });
+        await payment.requestPayment({
+          method: "CARD",
+          amount: { currency: "KRW", value: checkout.amount },
+          orderId: checkout.orderId,
+          orderName: checkout.orderName,
+          customerName: name,
+          customerMobilePhone: phone.replace(/\D/g, ""),
+          successUrl: checkout.successUrl,
+          failUrl: checkout.failUrl,
+          windowTarget: "self",
+          card: { flowMode: "DEFAULT", useEscrow: false, useCardPoint: false, useAppCardOnly: false },
+        });
+      }
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : "결제를 시작하지 못했습니다.";
-      if (!/취소|PAY_PROCESS_CANCELED/i.test(message)) setError(message);
+      if (!/취소|PAY_PROCESS_CANCELED|UserCancel/i.test(message)) setError(message);
     } finally {
       setSubmitting(false);
     }
@@ -495,7 +559,7 @@ export default function BookingExperience({ initialThemes, initialSettings }: Pr
           </fieldset>
 
           {(paymentError || error) && <div className="booking-error" role="alert">{paymentError || error}</div>}
-          {paymentMode === "unavailable" && <div className="booking-payment-unavailable"><strong>온라인 카드결제를 잠시 이용할 수 없습니다.</strong><span>{settings.storePhone ? `예약 문의 ${settings.storePhone}` : "잠시 후 다시 확인해 주세요."}</span></div>}
+          {paymentMode === "unavailable" && <div className="booking-payment-unavailable"><strong>온라인 결제를 준비하고 있습니다.</strong><span>{settings.storePhone ? `예약 문의 ${settings.storePhone}` : "결제기관 운영 설정이 끝난 뒤 결제가 열립니다."}</span></div>}
           <div className="booking-summary">
             <div><span>예약 내용</span><strong>{selectedTheme?.name || "테마 선택"}</strong><p>{selectedDate ? formatDate(selectedDate.date) : "날짜 미선택"} {selectedSlot?.time || "시간 미선택"} · {people}명</p></div>
             <button type="submit" disabled={!ready}>예약 내용 확인 <Arrow /></button>
@@ -510,8 +574,8 @@ export default function BookingExperience({ initialThemes, initialSettings }: Pr
             <h2 id="review-title">예약 내용을 확인해 주세요.</h2>
             <dl><div><dt>테마</dt><dd>{selectedTheme.name}</dd></div><div><dt>일시</dt><dd>{formatDate(selectedDate.date, true)} {selectedSlot.time}</dd></div><div><dt>인원</dt><dd>{people}명</dd></div><div><dt>대표자</dt><dd>{name}</dd></div><div><dt>연락처</dt><dd>{phone}</dd></div>{selectedTheme.prices[String(people)] && <div><dt>이용 요금</dt><dd>{selectedTheme.prices[String(people)].toLocaleString("ko-KR")}원</dd></div>}</dl>
             <div className="refund-summary"><strong>취소·환불 안내</strong><p>{cancelCutoffText(settings.cancelCutoffMinutes)}까지 취소하면 전액 환불됩니다. 이후 취소는 매장으로 문의해 주세요.</p><a href={policyUrl("refund")} target="_blank" rel="noreferrer">전체 정책 보기</a></div>
-            <p className="booking-next">카드결제가 승인되고 예약번호가 발급되면 예약이 확정됩니다.</p>
-            <div className="modal-actions"><button className="button primary" onClick={confirmReservation} disabled={submitting}>{submitting ? "결제창 여는 중…" : `${Number(selectedTheme.prices[String(people)] || 0).toLocaleString("ko-KR")}원 결제하기`} <Arrow /></button><button className="button quiet" onClick={() => setReviewing(false)} disabled={submitting}>다시 선택</button></div>
+            <p className="booking-next">네이버페이에서 결제가 승인되고 예약번호가 발급되면 예약이 확정됩니다.</p>
+            <div className="modal-actions"><button className="button primary" onClick={confirmReservation} disabled={submitting}>{submitting ? "결제창 여는 중…" : `네이버페이로 ${Number(selectedTheme.prices[String(people)] || 0).toLocaleString("ko-KR")}원 결제`} <Arrow /></button><button className="button quiet" onClick={() => setReviewing(false)} disabled={submitting}>다시 선택</button></div>
           </section>
         </div>
       )}
@@ -531,7 +595,7 @@ function InformationModal({ settings, onClose }: { kind: "privacy"; settings: Bo
       <section className="review-modal privacy-modal" role="dialog" aria-modal="true" aria-labelledby="information-title" onMouseDown={(event) => event.stopPropagation()}>
         <button className="modal-close" type="button" onClick={onClose} aria-label="닫기">×</button>
         <h2 id="information-title">개인정보 처리 안내</h2>
-        <dl className="privacy-list"><div><dt>처리 목적</dt><dd>예약 접수·본인 확인·카드결제·예약 확정·취소·환불 및 분쟁 처리</dd></div><div><dt>처리 항목</dt><dd>이름, 휴대전화번호, 테마, 이용일시, 인원, 예약번호와 주문·결제·환불 정보</dd></div><div><dt>보유 기간</dt><dd>운영용 예약정보는 이용일 또는 취소 후 {operationalDays}일, 계약·결제 기록은 {legalMonths}개월, 불만·분쟁 기록은 3년 보관 후 파기</dd></div></dl><p className="privacy-note">동의를 거부할 수 있으나, 예약계약 이행에 필요한 정보이므로 동의하지 않으면 온라인 예약을 진행할 수 없습니다.</p><a className="policy-detail-link" href={policyUrl("privacy")} target="_blank" rel="noreferrer">개인정보 처리방침 전체 보기</a>
+        <dl className="privacy-list"><div><dt>처리 목적</dt><dd>예약 접수·본인 확인·결제·예약 확정·취소·환불 및 분쟁 처리</dd></div><div><dt>처리 항목</dt><dd>이름, 휴대전화번호, 테마, 이용일시, 인원, 예약번호와 주문·결제·환불 정보</dd></div><div><dt>보유 기간</dt><dd>운영용 예약정보는 이용일 또는 취소 후 {operationalDays}일, 계약·결제 기록은 {legalMonths}개월, 불만·분쟁 기록은 3년 보관 후 파기</dd></div></dl><p className="privacy-note">동의를 거부할 수 있으나, 예약계약 이행에 필요한 정보이므로 동의하지 않으면 온라인 예약을 진행할 수 없습니다.</p><a className="policy-detail-link" href={policyUrl("privacy")} target="_blank" rel="noreferrer">개인정보 처리방침 전체 보기</a>
         <button className="button primary privacy-confirm" type="button" onClick={onClose}>확인</button>
       </section>
     </div>
@@ -545,7 +609,7 @@ function SuccessModal({ reservation, onClose, onManage }: { reservation: Reserva
     catch { setCopied(false); }
   };
   const receiptUrl = safeReceiptUrl(reservation.receiptUrl);
-  return <div className="modal-backdrop"><section className="review-modal success-modal printable-reservation" role="dialog" aria-modal="true" aria-labelledby="success-title"><div className="success-seal">✓</div><h2 id="success-title">예약이 확정되었습니다.</h2><p className="success-lead">결제가 완료되었습니다.</p><div className="booking-code"><span>예약번호</span><strong>{reservation.bookingCode}</strong><button type="button" onClick={copyCode}>{copied ? "복사됨" : "복사"}</button></div><dl><div><dt>테마</dt><dd>{reservation.themeName}</dd></div><div><dt>일시</dt><dd>{formatDate(reservation.date, true)} {minuteToTime(reservation.startMinute)}</dd></div><div><dt>인원</dt><dd>{reservation.partySize}명</dd></div>{reservation.priceTotal > 0 && <div><dt>결제 금액</dt><dd>{reservation.priceTotal.toLocaleString("ko-KR")}원</dd></div>}</dl><div className="success-tools"><button type="button" onClick={() => window.print()}>예약 내역 인쇄</button>{receiptUrl && <a href={receiptUrl} target="_blank" rel="noreferrer">카드 매출전표</a>}</div><p className="booking-next">예약번호를 캡처해 두세요. 예약 조회와 취소에도 사용됩니다.</p><div className="success-actions"><button className="button quiet" onClick={onManage}>예약 내역 보기</button><button className="button primary" onClick={onClose}>확인</button></div></section></div>;
+  return <div className="modal-backdrop"><section className="review-modal success-modal printable-reservation" role="dialog" aria-modal="true" aria-labelledby="success-title"><div className="success-seal">✓</div><h2 id="success-title">예약이 확정되었습니다.</h2><p className="success-lead">결제가 완료되었습니다.</p><div className="booking-code"><span>예약번호</span><strong>{reservation.bookingCode}</strong><button type="button" onClick={copyCode}>{copied ? "복사됨" : "복사"}</button></div><dl><div><dt>테마</dt><dd>{reservation.themeName}</dd></div><div><dt>일시</dt><dd>{formatDate(reservation.date, true)} {minuteToTime(reservation.startMinute)}</dd></div><div><dt>인원</dt><dd>{reservation.partySize}명</dd></div>{reservation.priceTotal > 0 && <div><dt>결제 금액</dt><dd>{reservation.priceTotal.toLocaleString("ko-KR")}원</dd></div>}</dl><div className="success-tools"><button type="button" onClick={() => window.print()}>예약 내역 인쇄</button>{receiptUrl && <a href={receiptUrl} target="_blank" rel="noreferrer">결제 영수증</a>}</div><p className="booking-next">예약번호를 캡처해 두세요. 예약 조회와 취소에도 사용됩니다.</p><div className="success-actions"><button className="button quiet" onClick={onManage}>예약 내역 보기</button><button className="button primary" onClick={onClose}>확인</button></div></section></div>;
 }
 
 function ManageReservation({ onClose }: { onClose: () => void }) {
@@ -561,7 +625,7 @@ function ManageReservation({ onClose }: { onClose: () => void }) {
   };
   const cancel = async () => {
     const paid = reservation?.paymentStatus === "paid";
-    if (!confirm(paid ? "예약을 취소하고 결제 금액을 카드 환불하시겠습니까?" : "예약을 취소하시겠습니까?")) return;
+    if (!confirm(paid ? "예약을 취소하고 결제 금액을 원래 결제수단으로 환불하시겠습니까?" : "예약을 취소하시겠습니까?")) return;
     setLoading(true); setError("");
     try { const response = await fetch(apiUrl("/api/public/reservations/cancel"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bookingCode, phone }) }); const data = await response.json(); if (!response.ok) throw new Error(data.error?.message); setReservation((current) => { if (!current) return null; const next = { ...current, status: "cancelled", paymentStatus: data.refunded ? "refunded" : current.paymentStatus }; saveRecentReservation(next); setRecent({ ...next, savedAt: Date.now() }); return next; }); } catch (caught) { setError(caught instanceof Error ? caught.message : "취소하지 못했습니다."); } finally { setLoading(false); }
   };
@@ -582,5 +646,5 @@ function ManageReservation({ onClose }: { onClose: () => void }) {
             ? "결제·예약 완료"
             : "예약 확정";
   const receiptUrl = safeReceiptUrl(reservation?.receiptUrl);
-  return <div className="modal-backdrop" onMouseDown={onClose}><section className="review-modal manage-modal" role="dialog" aria-modal="true" aria-labelledby="manage-title" onMouseDown={(event) => event.stopPropagation()}><button className="modal-close" onClick={onClose} aria-label="닫기">×</button><h2 id="manage-title">예약 조회·취소</h2>{!reservation ? <form className="lookup-form" onSubmit={lookup}>{recent && <button className="recent-reservation" type="button" onClick={() => { setBookingCode(recent.bookingCode); setError(""); }}><span>이 기기의 최근 예약</span><strong>{recent.bookingCode}</strong><small>{recent.themeName} · {formatDate(recent.date)} {minuteToTime(recent.startMinute)}</small></button>}<label>예약번호<input value={bookingCode} onChange={(event) => setBookingCode(event.target.value.toUpperCase().slice(0, 9))} placeholder="CT-XXXXXX" autoComplete="off" /></label><label>예약자 휴대전화번호<input type="tel" inputMode="numeric" value={phone} onChange={(event) => setPhone(formatPhone(event.target.value))} placeholder="010-0000-0000" autoComplete="tel" /></label>{error && <div className="booking-error">{error}</div>}<button className="button primary" disabled={loading}>{loading ? "조회 중…" : "예약 조회"}</button></form> : <><div className={`reservation-state ${cancelled ? "cancelled" : paymentStatus}`}>{statusText}</div><div className="booking-code"><span>예약번호</span><strong>{reservation.bookingCode}</strong></div><dl><div><dt>테마</dt><dd>{reservation.themeName}</dd></div><div><dt>일시</dt><dd>{formatDate(reservation.date, true)} {minuteToTime(reservation.startMinute)}</dd></div><div><dt>인원</dt><dd>{reservation.partySize}명</dd></div>{reservation.priceTotal > 0 && <div><dt>결제 금액</dt><dd>{reservation.priceTotal.toLocaleString("ko-KR")}원</dd></div>}</dl>{receiptUrl && <a className="receipt-link" href={receiptUrl} target="_blank" rel="noreferrer">카드 매출전표 보기</a>}{error && <div className="booking-error">{error}</div>}<div className="modal-actions">{reservation.status === "confirmed" && !refunding && !refunded && <button className="button danger" onClick={cancel} disabled={loading}>{loading ? (paid ? "환불 처리 중…" : "취소 처리 중…") : paid ? "예약 취소·카드 환불" : "예약 취소"}</button>}<button className="button quiet" onClick={() => { setReservation(null); setError(""); }}>다른 예약 조회</button></div></>}</section></div>;
+  return <div className="modal-backdrop" onMouseDown={onClose}><section className="review-modal manage-modal" role="dialog" aria-modal="true" aria-labelledby="manage-title" onMouseDown={(event) => event.stopPropagation()}><button className="modal-close" onClick={onClose} aria-label="닫기">×</button><h2 id="manage-title">예약 조회·취소</h2>{!reservation ? <form className="lookup-form" onSubmit={lookup}>{recent && <button className="recent-reservation" type="button" onClick={() => { setBookingCode(recent.bookingCode); setError(""); }}><span>이 기기의 최근 예약</span><strong>{recent.bookingCode}</strong><small>{recent.themeName} · {formatDate(recent.date)} {minuteToTime(recent.startMinute)}</small></button>}<label>예약번호<input value={bookingCode} onChange={(event) => setBookingCode(event.target.value.toUpperCase().slice(0, 9))} placeholder="CT-XXXXXX" autoComplete="off" /></label><label>예약자 휴대전화번호<input type="tel" inputMode="numeric" value={phone} onChange={(event) => setPhone(formatPhone(event.target.value))} placeholder="010-0000-0000" autoComplete="tel" /></label>{error && <div className="booking-error">{error}</div>}<button className="button primary" disabled={loading}>{loading ? "조회 중…" : "예약 조회"}</button></form> : <><div className={`reservation-state ${cancelled ? "cancelled" : paymentStatus}`}>{statusText}</div><div className="booking-code"><span>예약번호</span><strong>{reservation.bookingCode}</strong></div><dl><div><dt>테마</dt><dd>{reservation.themeName}</dd></div><div><dt>일시</dt><dd>{formatDate(reservation.date, true)} {minuteToTime(reservation.startMinute)}</dd></div><div><dt>인원</dt><dd>{reservation.partySize}명</dd></div>{reservation.priceTotal > 0 && <div><dt>결제 금액</dt><dd>{reservation.priceTotal.toLocaleString("ko-KR")}원</dd></div>}</dl>{receiptUrl && <a className="receipt-link" href={receiptUrl} target="_blank" rel="noreferrer">결제 영수증 보기</a>}{error && <div className="booking-error">{error}</div>}<div className="modal-actions">{reservation.status === "confirmed" && !refunding && !refunded && <button className="button danger" onClick={cancel} disabled={loading}>{loading ? (paid ? "환불 처리 중…" : "취소 처리 중…") : paid ? "예약 취소·결제 환불" : "예약 취소"}</button>}<button className="button quiet" onClick={() => { setReservation(null); setError(""); }}>다른 예약 조회</button></div></>}</section></div>;
 }

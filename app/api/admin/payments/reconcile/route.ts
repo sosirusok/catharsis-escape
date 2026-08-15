@@ -26,7 +26,7 @@ export async function POST(request: Request) {
     const code = error instanceof Error ? error.message : "SERVICE_ERROR";
     if (code === "RESERVATION_NOT_FOUND") return json({ ok: false, error: { code, message: "예약을 찾을 수 없습니다." } }, 404);
     if (code === "PAYMENT_NOT_COMPLETED") return json({ ok: false, error: { code, message: "결제가 완료되지 않은 예약입니다." } }, 410);
-    if (code === "PAYMENT_PROCESSING") return json({ ok: false, error: { code, message: "토스 결제 상태를 아직 확인할 수 없습니다. 잠시 후 다시 확인해 주세요." } }, 409);
-    return json({ ok: false, error: { code: "PAYMENT_RECONCILE_FAILED", message: "토스 결제 상태를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요." } }, 409);
+    if (code === "PAYMENT_PROCESSING") return json({ ok: false, error: { code, message: "결제사 상태를 아직 확인할 수 없습니다. 잠시 후 다시 확인해 주세요." } }, 409);
+    return json({ ok: false, error: { code: "PAYMENT_RECONCILE_FAILED", message: "결제사 상태를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요." } }, 409);
   }
 }

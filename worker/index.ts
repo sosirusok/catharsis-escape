@@ -10,6 +10,12 @@ interface Env {
   ADMIN_SESSION_SECRET?: string;
   BOOKING_DATA_KEY?: string;
   BOOKING_LOOKUP_PEPPER?: string;
+  NAVER_PAY_CLIENT_ID?: string;
+  NAVER_PAY_CLIENT_SECRET?: string;
+  NAVER_PAY_CHAIN_ID?: string;
+  NAVER_PAY_MODE?: string;
+  NAVER_PAY_TAX_SCOPE?: string;
+  PAYMENT_PROVIDER?: string;
   TOSS_CLIENT_KEY?: string;
   TOSS_SECRET_KEY?: string;
   ALLOW_PUBLIC_TEST_PAYMENTS?: string;
@@ -113,10 +119,11 @@ const worker = {
   async scheduled(_controller: unknown, env: Env, ctx: ExecutionContext): Promise<void> {
     (globalThis as typeof globalThis & { __SITES_ENV__?: Env }).__SITES_ENV__ = env;
     ctx.waitUntil(import("@/lib/owner-push").then(({ dispatchOwnerPushes }) => dispatchOwnerPushes(25)).catch(() => undefined));
-    ctx.waitUntil(import("@/lib/payment-flow").then(({ cleanupRetainedData, reconcileRecentProviderPayments, reconcileStalePayments }) =>
+    ctx.waitUntil(import("@/lib/payment-flow").then(({ cleanupRetainedData, reconcileDailyNaverPayments, reconcileRecentProviderPayments, reconcileStalePayments }) =>
       Promise.allSettled([
         reconcileStalePayments(Date.now(), 3),
         reconcileRecentProviderPayments(Date.now(), 10),
+        reconcileDailyNaverPayments(Date.now(), 5),
         cleanupRetainedData(Date.now(), 25),
       ]),
     ).then(() => undefined).catch(() => undefined));

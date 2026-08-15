@@ -45,7 +45,7 @@ export type BookingSettingsRecord = {
 
 export const DEFAULT_SETTINGS: BookingSettingsRecord = {
   timezone: "Asia/Seoul", horizonDays: 21, leadMinutes: 60, cancelCutoffMinutes: 1440,
-  consentVersion: "2026-08-15", termsVersion: "2026-08-15", refundPolicyVersion: "2026-08-15",
+  consentVersion: "2026-08-15-npay", termsVersion: "2026-08-15-npay", refundPolicyVersion: "2026-08-15-npay",
   bookingOpen: true, pausedMessage: "현재 예약 접수가 잠시 중단되었습니다.", storePhone: "051-802-3341",
   businessName: "카타르시스 이스케이프", representativeName: "", businessRegistrationNumber: "",
   mailOrderRegistrationNumber: "", mailOrderRegistrationAuthority: "", mailOrderRegistrationExempt: false,

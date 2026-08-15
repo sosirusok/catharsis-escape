@@ -36,6 +36,20 @@
       "when": 1786777055441,
       "tag": "0004_fair_terrax",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1786784872168,
+      "tag": "0005_naver_payment_provider",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1786785231297,
+      "tag": "0006_persist_refund_requester",
+      "breakpoints": true
     }
   ]
 }

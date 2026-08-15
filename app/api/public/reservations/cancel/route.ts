@@ -49,7 +49,7 @@ export async function POST(request: Request) {
     }
     if (["paid", "refund_processing"].includes(row.payment_status)) {
       try {
-        await refundReservationPayment(row.id, "고객 온라인 취소");
+        await refundReservationPayment(row.id, "고객 온라인 취소", "1");
         return json({ ok: true, status: "cancelled", refunded: true });
       } catch {
         return publicError("REFUND_PENDING", "환불 처리를 확인하고 있습니다. 잠시 후 다시 조회해 주세요.", 409);

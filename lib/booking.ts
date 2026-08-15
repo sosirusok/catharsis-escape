@@ -14,6 +14,10 @@ export type RuntimeEnv = {
   TOSS_CLIENT_KEY?: string;
   TOSS_SECRET_KEY?: string;
   PUBLIC_SITE_URL?: string;
+  FIREBASE_PROJECT_ID?: string;
+  FIREBASE_CLIENT_EMAIL?: string;
+  FIREBASE_PRIVATE_KEY?: string;
+  FIREBASE_PRIVATE_KEY_ID?: string;
 };
 
 export function getBucket(): R2Bucket {

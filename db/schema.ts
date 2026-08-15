@@ -224,11 +224,17 @@ export const ownerDevices = sqliteTable(
     deviceName: text("device_name").notNull(),
     tokenHash: text("token_hash").notNull().unique(),
     tokenLast8: text("token_last8").notNull(),
+    fcmFidEnc: text("fcm_fid_enc"),
+    fcmFidHash: text("fcm_fid_hash"),
+    fcmFidUpdatedAt: text("fcm_fid_updated_at"),
     active: integer("active").notNull().default(1),
     createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
     lastSeenAt: text("last_seen_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   },
-  (table) => [index("owner_devices_active_idx").on(table.active, table.lastSeenAt)],
+  (table) => [
+    index("owner_devices_active_idx").on(table.active, table.lastSeenAt),
+    uniqueIndex("owner_devices_fcm_fid_hash_unique").on(table.fcmFidHash),
+  ],
 );
 
 export const ownerAlerts = sqliteTable(
@@ -252,5 +258,29 @@ export const ownerAlerts = sqliteTable(
   (table) => [
     uniqueIndex("owner_alerts_event_unique").on(table.reservationId, table.type),
     index("owner_alerts_created_idx").on(table.id, table.createdAt),
+  ],
+);
+
+export const ownerPushDeliveries = sqliteTable(
+  "owner_push_deliveries",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    alertId: integer("alert_id").notNull().references(() => ownerAlerts.id),
+    deviceId: text("device_id").notNull().references(() => ownerDevices.id),
+    status: text("status").notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    nextAttemptAt: integer("next_attempt_at").notNull().default(0),
+    leaseToken: text("lease_token"),
+    leaseUntil: integer("lease_until"),
+    providerMessageId: text("provider_message_id").notNull().default(""),
+    lastErrorCode: text("last_error_code").notNull().default(""),
+    lastErrorMessage: text("last_error_message").notNull().default(""),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    sentAt: text("sent_at"),
+  },
+  (table) => [
+    uniqueIndex("owner_push_deliveries_alert_device_unique").on(table.alertId, table.deviceId),
+    index("owner_push_deliveries_due_idx").on(table.status, table.nextAttemptAt, table.leaseUntil),
   ],
 );

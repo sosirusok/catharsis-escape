@@ -13,6 +13,10 @@ interface Env {
   TOSS_CLIENT_KEY?: string;
   TOSS_SECRET_KEY?: string;
   PUBLIC_SITE_URL?: string;
+  FIREBASE_PROJECT_ID?: string;
+  FIREBASE_CLIENT_EMAIL?: string;
+  FIREBASE_PRIVATE_KEY?: string;
+  FIREBASE_PRIVATE_KEY_ID?: string;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
@@ -97,10 +101,17 @@ const worker = {
     if (request.method === "GET" && url.pathname === "/api/public/availability") {
       ctx.waitUntil(import("@/lib/payment-flow").then(({ reconcileStalePayments }) => reconcileStalePayments(Date.now(), 1)).catch(() => undefined));
     }
+    if (url.pathname.startsWith("/api/")) {
+      ctx.waitUntil(import("@/lib/owner-push").then(({ dispatchOwnerPushes }) => dispatchOwnerPushes(10)).catch(() => undefined));
+    }
     if (corsProfile && requestOrigin === GITHUB_PAGES_ORIGIN) {
       return withApiCors(response, corsProfile);
     }
     return response;
+  },
+  async scheduled(_controller: unknown, env: Env, ctx: ExecutionContext): Promise<void> {
+    (globalThis as typeof globalThis & { __SITES_ENV__?: Env }).__SITES_ENV__ = env;
+    ctx.waitUntil(import("@/lib/owner-push").then(({ dispatchOwnerPushes }) => dispatchOwnerPushes(25)).catch(() => undefined));
   },
 };
 

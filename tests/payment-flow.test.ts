@@ -4,10 +4,11 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 
 import { getPaymentResult, confirmReservationPayment, refundReservationPayment, releaseReviewedUnpaidReservation } from "../lib/payment-flow";
-import { addDays, kstDateKey, readJsonBody, sha256, weekdayKst } from "../lib/booking";
+import { addDays, encryptPrivate, kstDateKey, readJsonBody, sha256, weekdayKst } from "../lib/booking";
 import { buildAvailability } from "../lib/availability";
 import { isPublicWebOriginAllowed } from "../lib/request-origin";
-import { DELETE as revokeDevice } from "../app/api/owner-app/device/route";
+import { dispatchOwnerPushes } from "../lib/owner-push";
+import { DELETE as revokeDevice, PATCH as registerPushDevice } from "../app/api/owner-app/device/route";
 import { POST as checkoutPayment } from "../app/api/public/payments/checkout/route";
 
 class SqliteStatement {
@@ -62,10 +63,16 @@ class SqliteD1 {
 
 function applyMigrations(database: DatabaseSync) {
   database.exec("PRAGMA foreign_keys = ON");
-  for (const file of ["drizzle/0000_funny_shiva.sql", "drizzle/0001_fixed_groot.sql", "drizzle/0002_sticky_mathemanic.sql"]) {
+  for (const file of ["drizzle/0000_funny_shiva.sql", "drizzle/0001_fixed_groot.sql", "drizzle/0002_sticky_mathemanic.sql", "drizzle/0003_wonderful_dazzler.sql"]) {
     const migration = readFileSync(new URL(`../${file}`, import.meta.url), "utf8");
     for (const statement of migration.split("--> statement-breakpoint").map((value) => value.trim()).filter(Boolean)) database.exec(statement);
   }
+}
+
+function pemPrivateKey(bytes: ArrayBuffer): string {
+  const binary = String.fromCharCode(...new Uint8Array(bytes));
+  const base64 = btoa(binary).match(/.{1,64}/g)?.join("\n") || "";
+  return `-----BEGIN PRIVATE KEY-----\n${base64}\n-----END PRIVATE KEY-----`;
 }
 
 function payment(id: string, status = "DONE") {
@@ -256,4 +263,69 @@ test("overlapping manual reservations close public slots and a concurrent closur
   assert.equal((await checkout.json()).error.code, "SLOT_UNAVAILABLE");
   assert.equal((database.prepare("SELECT COUNT(*) count FROM reservations WHERE request_id = '27fa0db9-a390-4dce-a441-30f69a6f723d'").get() as { count: number }).count, 0);
   database.close();
+});
+
+test("owner push registration, transactional outbox, and FCM delivery expose no reservation PII", async () => {
+  const database = new DatabaseSync(":memory:");
+  applyMigrations(database);
+  const d1 = new SqliteD1(database);
+  const keyPair = await crypto.subtle.generateKey(
+    { name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" },
+    true,
+    ["sign", "verify"],
+  );
+  const privateKey = pemPrivateKey(await crypto.subtle.exportKey("pkcs8", keyPair.privateKey));
+  (globalThis as typeof globalThis & { __SITES_ENV__?: unknown }).__SITES_ENV__ = {
+    DB: d1,
+    BOOKING_DATA_KEY: "unit-test-booking-data-key",
+    BOOKING_LOOKUP_PEPPER: "unit-test-booking-lookup-pepper",
+    FIREBASE_PROJECT_ID: "catharsis-unit",
+    FIREBASE_CLIENT_EMAIL: "fcm-unit@catharsis-unit.iam.gserviceaccount.com",
+    FIREBASE_PRIVATE_KEY: privateKey,
+  };
+
+  seedReservation(database, "push5", "slot-push", "paid", 810);
+  const deviceToken = "D".repeat(43);
+  database.prepare("INSERT INTO owner_devices (id, device_name, token_hash, token_last8) VALUES ('device-push', '사장님 폰', ?, 'DDDDDDDD')").run(await sha256(deviceToken));
+  const installationId = "catharsisOwnerInstallation_01";
+  const registered = await registerPushDevice(new Request("https://example.invalid/api/owner-app/device", {
+    method: "PATCH",
+    headers: { authorization: `Bearer ${deviceToken}`, "content-type": "application/json" },
+    body: JSON.stringify({ installationId }),
+  }));
+  assert.equal(registered.status, 200);
+
+  const encryptedName = await encryptPrivate("예약고객");
+  const encryptedPhone = await encryptPrivate("01012345678");
+  database.prepare(
+    `INSERT INTO owner_alerts
+      (reservation_id,type,booking_code,theme_name,service_date,start_minute,party_size,amount,status,payment_status,customer_name_enc,phone_enc)
+     VALUES ('push5','reservation.confirmed','CT-PUSH55','인생테마','2026-08-20',810,2,44000,'confirmed','paid',?,?)`,
+  ).run(encryptedName, encryptedPhone);
+  assert.equal((database.prepare("SELECT COUNT(*) count FROM owner_push_deliveries").get() as { count: number }).count, 1);
+
+  let fcmPayload = "";
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (url === "https://oauth2.googleapis.com/token") return Response.json({ access_token: "unit-access-token", expires_in: 3600 });
+    if (url.includes("fcm.googleapis.com")) {
+      fcmPayload = String(init?.body || "");
+      return Response.json({ name: "projects/catharsis-unit/messages/unit-message" });
+    }
+    return Response.json({}, { status: 404 });
+  };
+  try {
+    assert.equal(await dispatchOwnerPushes(), 1);
+    const body = JSON.parse(fcmPayload);
+    assert.equal(body.message.fid, installationId);
+    assert.deepEqual(Object.keys(body.message.data).sort(), ["alertId", "kind", "schema"]);
+    assert.equal(fcmPayload.includes("예약고객"), false);
+    assert.equal(fcmPayload.includes("01012345678"), false);
+    assert.equal(fcmPayload.includes("CT-PUSH55"), false);
+    assert.equal((database.prepare("SELECT status FROM owner_push_deliveries").get() as { status: string }).status, "sent");
+  } finally {
+    globalThis.fetch = originalFetch;
+    database.close();
+  }
 });

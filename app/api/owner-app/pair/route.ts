@@ -29,7 +29,16 @@ export async function POST(request: Request) {
     const id = createId("device");
     const db = getD1();
     await db.batch([
-      db.prepare("UPDATE owner_devices SET active = 0 WHERE device_name = ? AND active = 1").bind(deviceName),
+      db.prepare(
+        `UPDATE owner_push_deliveries SET status = 'dead', lease_token = NULL, lease_until = NULL,
+          last_error_code = 'DEVICE_REPLACED', updated_at = CURRENT_TIMESTAMP
+         WHERE status IN ('pending','retry','sending')
+           AND device_id IN (SELECT id FROM owner_devices WHERE device_name = ? AND active = 1)`,
+      ).bind(deviceName),
+      db.prepare(
+        `UPDATE owner_devices SET active = 0, fcm_fid_enc = NULL, fcm_fid_hash = NULL,
+          fcm_fid_updated_at = CURRENT_TIMESTAMP WHERE device_name = ? AND active = 1`,
+      ).bind(deviceName),
       db.prepare("INSERT INTO owner_devices (id, device_name, token_hash, token_last8) VALUES (?, ?, ?, ?)").bind(id, deviceName, digest, token.slice(-8)),
     ]);
     return json({ ok: true, token, device: { id, name: deviceName } }, 201);
